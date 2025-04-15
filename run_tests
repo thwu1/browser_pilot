@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""
+BrowPilot Test Runner
+=====================
+A simple test runner that provides a CMake-like experience for running tests.
+
+Usage:
+  ./run_tests              # Run all tests
+  ./run_tests browser      # Run all browser tests
+  ./run_tests -v           # Run all tests with verbose output
+  ./run_tests -h           # Show help
+"""
+
+import os
+import sys
+import subprocess
+import argparse
+import time
+import glob
+
+# Colors for terminal output
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+def print_header(text):
+    print(f"\n{Colors.BOLD}{Colors.HEADER}{'='*80}{Colors.ENDC}")
+    print(f"{Colors.BOLD}{Colors.HEADER}{text.center(80)}{Colors.ENDC}")
+    print(f"{Colors.BOLD}{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
+
+def print_result(status, name, duration, verbose=False):
+    if status:
+        result = f"{Colors.GREEN}PASSED{Colors.ENDC}"
+    else:
+        result = f"{Colors.RED}FAILED{Colors.ENDC}"
+    
+    print(f"{result} {Colors.BOLD}{name}{Colors.ENDC} [{duration:.2f}s]")
+
+def run_test(test_file, verbose=False):
+    start_time = time.time()
+    
+    if verbose:
+        print(f"\n{Colors.BOLD}{Colors.BLUE}Running: {test_file}{Colors.ENDC}")
+        # Run test with output shown
+        result = subprocess.run([sys.executable, test_file], cwd=os.path.dirname(os.path.abspath(test_file)))
+    else:
+        # Run test with output captured
+        result = subprocess.run(
+            [sys.executable, test_file], 
+            cwd=os.path.dirname(os.path.abspath(test_file)),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+    
+    duration = time.time() - start_time
+    success = result.returncode == 0
+    
+    # Print result
+    print_result(success, os.path.basename(test_file), duration, verbose)
+    
+    return success, duration, test_file
+
+def get_test_files(test_dir, pattern=None):
+    if pattern:
+        return sorted(glob.glob(f"{test_dir}/test_{pattern}*.py"))
+    else:
+        return sorted(glob.glob(f"{test_dir}/test_*.py"))
+
+def main():
+    parser = argparse.ArgumentParser(description="Run BrowPilot tests")
+    parser.add_argument("pattern", nargs="?", help="Test pattern to run (e.g. 'browser', 'scheduler')")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed test output")
+    parser.add_argument("-l", "--list", action="store_true", help="List tests without running them")
+    args = parser.parse_args()
+    
+    # Get the project root and test directory
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    test_dir = os.path.join(project_root, "tests")
+    
+    # Get all test files
+    test_files = get_test_files(test_dir, args.pattern)
+    
+    if args.list:
+        print_header("AVAILABLE TESTS")
+        for test in test_files:
+            print(f"  {os.path.basename(test)}")
+        return 0
+    
+    if not test_files:
+        if args.pattern:
+            print(f"{Colors.YELLOW}No tests found matching: {args.pattern}{Colors.ENDC}")
+        else:
+            print(f"{Colors.YELLOW}No tests found in {test_dir}{Colors.ENDC}")
+        return 0
+    
+    # Print header
+    if args.pattern:
+        print_header(f"RUNNING {args.pattern.upper()} TESTS")
+    else:
+        print_header("RUNNING ALL TESTS")
+    
+    # Run all tests
+    start_time = time.time()
+    results = []
+    
+    for test_file in test_files:
+        success, duration, test_name = run_test(test_file, args.verbose)
+        results.append((success, duration, test_name))
+    
+    total_duration = time.time() - start_time
+    
+    # Print summary
+    print_header("TEST SUMMARY")
+    
+    passed = [r for r in results if r[0]]
+    failed = [r for r in results if not r[0]]
+    
+    # Print overall stats
+    print(f"Total tests: {len(results)}")
+    print(f"Passed: {Colors.GREEN}{len(passed)}{Colors.ENDC}")
+    print(f"Failed: {Colors.RED}{len(failed)}{Colors.ENDC}")
+    print(f"Total time: {total_duration:.2f}s")
+    
+    # Print failed tests
+    if failed:
+        print(f"\n{Colors.RED}{Colors.BOLD}FAILED TESTS:{Colors.ENDC}")
+        for success, duration, test_name in failed:
+            print(f"  {Colors.RED}{os.path.basename(test_name)}{Colors.ENDC}")
+    
+    return 1 if failed else 0
+
+if __name__ == "__main__":
+    sys.exit(main())
