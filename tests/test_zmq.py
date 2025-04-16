@@ -124,20 +124,53 @@ class Server:
                 
 
 
-if __name__ == "__main__":
-    
+
+def test_client_server_communication():
     proc = mp.Process(target=Server.run_background_loop, args=(6000, 6001))
     proc.daemon = True
     proc.start()
 
     client = Client("test_worker_cfa378c0", 6000, 6001)
-    client.send({"value": 0, "result": {"hello": "world", "value": 0}, "task_id": f"task_{uuid.uuid4().hex[:8]}", "context_id": f"{uuid.uuid4().hex[:8]}", "command": "create_context"})
-    for i in range(1000):
-        result = None
-        while result is None:
-            result = client.receive()
-        result["value"] += 1
-        client.send(result)
+    
+    try:
+        client.send({"value": 0, "result": {"hello": "world", "value": 0}, "task_id": f"task_{uuid.uuid4().hex[:8]}", "context_id": f"{uuid.uuid4().hex[:8]}", "command": "create_context"})
+        
+        start_time = time.time()
+        timeout = 30  # 30 seconds timeout
+        
+        for i in range(25):
+            result = None
+            while result is None:
+                if time.time() - start_time > timeout:
+                    break
+                result = client.receive()
+                time.sleep(0.1)  # Short sleep to prevent busy waiting
+            
+            result["value"] += 1
+            client.send(result)
+        
+        assert result["value"] == 50, f"Expected value 50, but got {result['value']}"
+        
+    except Exception as e:
+        pytest.fail(f"Test failed with error: {str(e)}")
+    
+    finally:
+        # Terminate the server process and free up resources
+        proc.terminate()
+        proc.join(timeout=5)  # Wait for the process to finish with a timeout
+        
+        if proc.is_alive():
+            proc.kill()  # Force kill if it's still running
+            pytest.fail("Server process did not terminate gracefully")
+        
+        # Close the client's ZMQ sockets and context
+        client.task_socket.close()
+        client.result_socket.close()
+        client.zmq_context.term()
+        
+        print("Server process terminated and resources freed.")
+
+
 
 
         

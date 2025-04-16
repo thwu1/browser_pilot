@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Function to check if a port is available
+check_port() {
+    local port=$1
+    netstat -tuln | grep -q ":$port " && return 1 || return 0
+}
+
+# Function to find next available port
+find_available_port() {
+    local port=$1
+    while ! check_port $port; do
+        port=$((port + 1))  
+    done
+    echo $port
+}
+
+# Function to monitor progress
+monitor_progress() {
+    local temp_file=$1
+    local total_cmds=$2
+    while true; do
+        if [[ ! -f $temp_file ]]; then
+            break
+        fi
+        completed=$(cat $temp_file | wc -l)
+        echo -ne "\rCompleted: $completed/$total_cmds commands"
+        if [ $completed -eq $total_cmds ]; then
+            echo
+            break
+        fi
+        sleep 1
+    done
+}
+
+start_time=$(date +%s)
+
+# Create temporary file for tracking completion
+temp_file=$(mktemp)
+
+# Run commands in parallel and wait for all of them to complete
+{
+    constant=64
+    cmd_num=8
+    total=$((constant / cmd_num))
+    base_task_port=42821
+    base_result_port=42921
+
+    # Find available base ports
+    base_task_port=$(find_available_port $base_task_port)
+    base_result_port=$(find_available_port $base_result_port)
+
+    echo "Using port ranges:"
+    echo "Task ports: $base_task_port to $(($base_task_port + $cmd_num - 1))"
+    echo "Result ports: $base_result_port to $(($base_result_port + $cmd_num - 1))"
+
+    # Start progress monitoring in background
+    monitor_progress "$temp_file" "$cmd_num" &
+    monitor_pid=$!
+
+    for i in $(seq 0 $((cmd_num - 1))); do
+        task_port=$((base_task_port + i))
+        result_port=$((base_result_port + i))
+        
+        # Double check ports are available
+        if ! check_port $task_port || ! check_port $result_port; then
+            echo "Error: Ports $task_port or $result_port became unavailable"
+            rm -f "$temp_file"  # Clean up temp file
+            exit 1
+        fi
+        
+        # Run the command and mark completion in temp file when done
+        (python test_worker_comm.py --input-path "ipc://in_$task_port" --output-path "ipc://out_$result_port" --total $total && echo "done" >> "$temp_file") &
+    done
+
+    wait
+
+    # Clean up
+    rm -f "$temp_file"
+} 2>/dev/null
+
+end_time=$(date +%s)
+elapsed=$((end_time - start_time))
+
+echo "All commands completed successfully!"
+echo "Total execution time: $elapsed seconds"

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Browser Worker Module
 
@@ -23,6 +22,7 @@ from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 import zmq
 import traceback
+from utils import make_zmq_socket
 
 # Configure logging
 logging.basicConfig(
@@ -36,12 +36,6 @@ MAX_CONTEXTS_PER_PROCESS = int(os.environ.get('MAX_CONTEXTS_PER_PROCESS', '5'))
 CONTEXT_IDLE_TIMEOUT_SECONDS = int(os.environ.get('CONTEXT_IDLE_TIMEOUT_SECONDS', '300'))  # 5 minutes
 HEALTH_CHECK_INTERVAL_SECONDS = int(os.environ.get('HEALTH_CHECK_INTERVAL_SECONDS', '30'))
 BROWSER_HEADLESS = os.environ.get('BROWSER_HEADLESS', 'True').lower() == 'true'
-
-# Constants
-MAX_CONTEXTS_PER_PROCESS = int(os.environ.get('MAX_CONTEXTS_PER_PROCESS', '5'))
-CONTEXT_IDLE_TIMEOUT_SECONDS = int(os.environ.get('CONTEXT_IDLE_TIMEOUT_SECONDS', '300'))  # 5 minutes
-HEALTH_CHECK_INTERVAL_SECONDS = int(os.environ.get('HEALTH_CHECK_INTERVAL_SECONDS', '30'))
-
 
 class ContextState(Enum):
     """States for a browser context"""
@@ -106,8 +100,8 @@ class AsyncBrowserWorker:
         self.event_loop = None
         
         # Task queue system
-        self.task_queue = asyncio.Queue()
-        self.result_queue = asyncio.Queue()
+        self.input_queue = asyncio.Queue()
+        self.output_queue = asyncio.Queue()
         
         logger.info(f"Initializing BrowserWorker with ID: {self.worker_id}")
     
@@ -145,40 +139,22 @@ class AsyncBrowserWorker:
             
         logger.info(f"Adding task to queue: {task}")
 
-        self.task_queue.put_nowait(task)
+        self.input_queue.put_nowait(task)
         return task.task_id
-
-    # async def get_result(self, timeout=None):
-    #     """Get the next result from the result queue"""
-    #     if not self.running:
-    #         raise RuntimeError("Worker is not running")
-            
-    #     try:
-    #         result = await asyncio.wait_for(self.result_queue.get(), timeout)
-    #         self.result_queue.task_done()
-    #         return result
-    #     except asyncio.TimeoutError:
-    #         return None
 
     async def process_task_queue_loop(self):
         """Process tasks from the queue in the background"""
         while self.running:
             try:
                 # Wait for tasks when the queue is empty
-                while self.task_queue.qsize() == 0:
-                    task = await self.task_queue.get()
+                while self.input_queue.qsize() == 0:
+                    task = await self.input_queue.get()
                     self.event_loop.create_task(self._execute_task(task))
                     
                 # Process all available tasks without blocking
-                while self.task_queue.qsize() > 0:
-                    try:
-                        task = self.task_queue.get_nowait()
-                        self.event_loop.create_task(self._execute_task(task))
-                    except asyncio.QueueEmpty:
-                        logger.error("Queue empty, should not happen")
-                        break
-                    except Exception as e:
-                        logger.error(f"Error processing task: {str(e)}")
+                while self.input_queue.qsize() > 0:
+                    task = self.input_queue.get_nowait()
+                    self.event_loop.create_task(self._execute_task(task))
             
             except asyncio.CancelledError:
                 logger.info("Task processor cancelled")
@@ -190,7 +166,6 @@ class AsyncBrowserWorker:
     async def _execute_task(self, task: BrowserWorkerTask):
         """Execute a single task and put result in result queue"""
         try:
-            # Execute the command
             result = await self.execute_command(
                 task.context_id,
                 task.page_id,
@@ -199,7 +174,7 @@ class AsyncBrowserWorker:
             )
 
             # Put result in the result queue
-            self.result_queue.put_nowait({
+            self.output_queue.put_nowait({
                 "task_id": task.task_id,
                 "page_id": result.get("page_id", None),
                 "result": result,
@@ -210,7 +185,7 @@ class AsyncBrowserWorker:
         except Exception as e:
             # Log error and queue error result
             logger.error(f"Error executing task {task.task_id}: {str(e)}")
-            self.result_queue.put_nowait({
+            self.output_queue.put_nowait({
                 "task_id": task.task_id,
                 "error": str(e),
                 "success": False,
@@ -275,16 +250,6 @@ class AsyncBrowserWorker:
     #     logger.info(f"BrowserWorker {self.worker_id} stopped")
 
     async def create_context(self, context_id: str, context_options: Dict[str, Any] = None) -> str:
-        """
-        Create a new browser context
-        
-        Args:
-            context_id: ID for the context
-            context_options: Options for the browser context
-            
-        Returns:
-            The context ID
-        """
         if not self.running or not self.browser:
             await self.start()
         
@@ -346,31 +311,15 @@ class AsyncBrowserWorker:
             logger.info(f"Created browser context {context_id}, context info: {context_info}")
             return context_id
         except Exception as e:
-            # Clean up on failure
             if context_id in self.contexts:
                 del self.contexts[context_id]
             logger.error(f"Failed to create browser context: {e}")
             raise
     
     async def has_context(self, context_id: str) -> bool:
-        """
-        Check if a context exists
-        
-        Args:
-            context_id: ID of the context to check
-            
-        Returns:
-            True if the context exists, False otherwise
-        """
         return context_id in self.contexts
     
     async def terminate_context(self, context_id: str):
-        """
-        Terminate a browser context
-        
-        Args:
-            context_id: ID of the context to terminate
-        """
         if context_id not in self.contexts:
             logger.warning(f"Context {context_id} not found for termination")
             return
@@ -516,7 +465,6 @@ class AsyncBrowserWorker:
             if context_info.state != ContextState.ACTIVE:
                 raise ValueError(f"Context {context_id} is not active (state: {context_info.state})")
             
-            # Update activity time
             context_info.last_activity_time = time.time()
         
         # Execute command
@@ -535,7 +483,6 @@ class AsyncBrowserWorker:
                 context_info.last_activity_time = time.time()
 
             elif command == "browser_navigate":
-                # Navigate to URL
                 page, page_id = await self._get_or_create_page(context_id, params.get("page_id"))
                 # Use 'load' state and timeout
                 wait_until = params.get("wait_until", "load")
@@ -548,7 +495,6 @@ class AsyncBrowserWorker:
                 logger.info(f"===================={self.contexts[context_id]}")
             
             elif command == "browser_navigate_back":
-                # Go back to the previous page
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 timeout = params.get("timeout", 2000)
                 await page.go_back()
@@ -560,7 +506,6 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id, "url": page.url}
                 
             elif command == "browser_navigate_forward":
-                # Go forward to the next page
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 timeout = params.get("timeout", 2000)
                 await page.go_forward()
@@ -572,7 +517,6 @@ class AsyncBrowserWorker:
                 result = {"success": True, "url": page.url, "page_id": page_id, "context_id": context_id}
             
             elif command == "browser_click":
-                # Click on element
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 timeout = params.get("timeout", 2000)
                 
@@ -604,7 +548,6 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
             
             elif command == "browser_type":
-                # Type text
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 timeout = params.get("timeout", 2000)
                 
@@ -641,7 +584,6 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
             
             elif command == "browser_press_key":
-                # Press a key on the keyboard
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 timeout = params.get("timeout", 2000)
                 
@@ -671,7 +613,6 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
             
             elif command == "browser_file_upload":
-                # Upload files
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 if "selector" in params:
                     element_handle = await page.query_selector(params["selector"])
@@ -686,20 +627,17 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
                 
             elif command == "browser_pdf_save":
-                # Save page as PDF
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 pdf_options = {k: v for k, v in params.items() if k != "page_id"}
                 pdf_data = await page.pdf(**pdf_options)
                 result = {"success": True, "pdf": pdf_data, "page_id": page_id, "context_id": context_id}
             
             elif command == "browser_wait":
-                # Wait for a specified time in seconds
                 wait_time = min(params.get("time", 1), 10)  # Cap at 10 seconds
                 await asyncio.sleep(wait_time)
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
                 
             elif command == "browser_close":
-                # Close the page
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 await page.close()
                 # Remove page from pages dictionary
@@ -710,7 +648,6 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
             
             elif command == "browser_screenshot":
-                # Take screenshot
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 # Convert camelCase params to snake_case for Playwright compatibility
                 screenshot_params = {}
@@ -726,12 +663,10 @@ class AsyncBrowserWorker:
                 result = {"success": True, "screenshot": screenshot, "page_id": page_id, "context_id": context_id}
             
             elif command == "browser_evaluate":
-                # Evaluate JavaScript
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
                 eval_result = await page.evaluate(params["script"], params.get("arg"))
                 result = {"success": True, "result": eval_result, "page_id": page_id, "context_id": context_id}
             elif command == "browser_observation":
-                # Get observation
                 observation = await self._get_observation(context_id, params["observation_type"], params)
                 result = {"success": True, "observation": observation, "page_id": page_id, "context_id": context_id}
             
@@ -752,7 +687,6 @@ class AsyncBrowserWorker:
         
         except Exception as e:
             logger.error(f"Error executing command {command} in context {context_id}: {e}")
-            # Check if this is a fatal error that should mark the context as failed
             if "Target closed" in str(e) or "Session closed" in str(e):
                 context_info.state = ContextState.FAILED
             raise
@@ -780,8 +714,6 @@ class AsyncBrowserWorker:
         
         if context_info.state != ContextState.ACTIVE:
             raise ValueError(f"Context {context_id} is not active (state: {context_info.state})")
-        
-        # Update activity time
         context_info.last_activity_time = time.time()
         
         # Get observation
@@ -789,15 +721,12 @@ class AsyncBrowserWorker:
             params = params or {}
             result = {}
             
-            # Handle different observation types
             if observation_type == "html":
-                # Get HTML content
                 page = await self._get_page(context_id, params.get("page_id"))
                 content = await page.content()
                 result = {"html": content}
             
             elif observation_type == "accessibility":
-                # Get accessibility data
                 page = await self._get_page(context_id, params.get("page_id"))
                 accessibility = await page.accessibility.snapshot()
                 result = {"accessibility": accessibility}
@@ -809,7 +738,6 @@ class AsyncBrowserWorker:
         
         except Exception as e:
             logger.error(f"Error getting observation {observation_type} from context {context_id}: {e}")
-            # Check if this is a fatal error that should mark the context as failed
             if "Target closed" in str(e) or "Session closed" in str(e):
                 context_info.state = ContextState.FAILED
             raise
@@ -856,14 +784,11 @@ class AsyncBrowserWorker:
         if not context_info.browser_context:
             raise ValueError(f"No browser context available for {context_id}")
         
-        # Generate page ID if not provided
         page_id = page_id or str(uuid.uuid4())
         
-        # Return existing page if it exists
         if page_id in context_info.pages:
             return context_info.pages[page_id]
         
-        # Create new page
         page = await context_info.browser_context.new_page()
         context_info.pages[page_id] = page
         
@@ -881,19 +806,15 @@ class AsyncBrowserWorker:
             Page object
         """
         context_info = self.contexts[context_id]
-
-        print("9999999999999999999999999999999_get_page", context_info)
         
         if not context_info.browser_context:
             raise ValueError(f"No browser context available for {context_id}")
         
-        # If no page ID provided, use the first page or create one
         if not page_id:
             if not context_info.pages:
                 return await self._get_or_create_page(context_id)
             return next(iter(context_info.pages.values()))
         
-        # Get specific page
         if page_id not in context_info.pages:
             raise ValueError(f"Page {page_id} not found in context {context_id}")
         
@@ -908,23 +829,18 @@ class AsyncBrowserWorkerProcess:
     receiving tasks from the engine, and sending results back.
     """
     
-    def __init__(self, worker_id: str, task_port: int, result_port: int):
-        self.task_port = task_port
-        self.result_port = result_port
+    def __init__(self, worker_id: str, input_path: str, output_path: str):
+        self.input_path = input_path
+        self.output_path = output_path
         
         self.ctx = zmq.Context()
-        self.task_socket = self.ctx.socket(zmq.PULL)
-        self.task_socket.setsockopt(zmq.LINGER, 5000)
-        self.task_socket.bind(f"tcp://*:{self.task_port}")
-
-        self.result_socket = self.ctx.socket(zmq.PUSH)
-        self.result_socket.setsockopt(zmq.LINGER, 5000)
-        self.result_socket.bind(f"tcp://*:{self.result_port}")
+        self.input_socket = make_zmq_socket(self.ctx, self.input_path, zmq.PULL, bind=True)
+        self.output_socket = make_zmq_socket(self.ctx, self.output_path, zmq.PUSH, bind=True)
 
         self.worker = AsyncBrowserWorker(worker_id)
     
     @staticmethod
-    def run_background_loop(worker_id: str, task_port: int, result_port: int):
+    def run_background_loop(worker_id: str, input_path: str, output_path: str):
         """
         Run a worker process in the background with ZMQ communication
         
@@ -933,27 +849,15 @@ class AsyncBrowserWorkerProcess:
             task_port: Port to receive tasks on
             result_port: Port to send results back on
         """
-        # Configure logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
         
         async def main_loop():
-            # Create worker process
-            process = AsyncBrowserWorkerProcess(worker_id, task_port, result_port)
-            
-            # Start the worker
+            process = AsyncBrowserWorkerProcess(worker_id, input_path, output_path)
             await process.worker.start()
-            logger.info(f"Worker started with task_port={task_port}, result_port={result_port}")
+            logger.info(f"Worker started with input_path={input_path}, output_path={output_path}")
             
-            # Run the continuous processing loop
             tasks = [process.process_incoming_socket_loop(), process.worker.process_task_queue_loop(), process.process_outgoing_socket_loop()]
-            
-            # Process incoming and outgoing messages
             await asyncio.gather(*tasks)
         
-        # Run the async main loop
         try:
             asyncio.run(main_loop())
         except KeyboardInterrupt:
@@ -964,15 +868,12 @@ class AsyncBrowserWorkerProcess:
 
     async def process_incoming_socket_loop(self):
         while self.worker.running:
-            # print("process incoming socket")
             try:
-                message = self.task_socket.recv_json(flags=zmq.NOBLOCK)
+                message = self.input_socket.recv_json(flags=zmq.NOBLOCK)
                 if message:
                     task = BrowserWorkerTask(**message)
-                    print("Received message: ", message, "adding to queue")
-                    self.worker.task_queue.put_nowait(task)
+                    self.worker.input_queue.put_nowait(task)
             except zmq.Again:
-                # print("No message to receive")
                 await asyncio.sleep(0.1)
             except Exception as e:
                 print(e)
@@ -980,18 +881,15 @@ class AsyncBrowserWorkerProcess:
             
     async def process_outgoing_socket_loop(self):
         while self.worker.running:
-            # print("process outgoing socket, queue size: ", self.worker.result_queue.qsize())
-            while self.worker.result_queue.qsize() == 0:
+            while self.worker.output_queue.qsize() == 0:
                 await asyncio.sleep(0.1)
                 
-            message = self.worker.result_queue.get_nowait()
-            # print("message type:", type(message))
+            message = self.worker.output_queue.get_nowait()
             try:
-                self.result_socket.send_json(message)
-                # print("Sent message: ", message)
+                self.output_socket.send_json(message)
             except zmq.Again:
-                print("Queue full, size: ", self.worker.result_queue.qsize(), "SHOULD RESEND")
-                self.result_socket.send_json(message)
+                print("Queue full, size: ", self.worker.output_queue.qsize(), "SHOULD RESEND")
+                self.output_socket.send_json(message)
                 await asyncio.sleep(0.1)
             except Exception as e:
                 print("process outgoing socket error: ", e)
