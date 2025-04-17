@@ -54,6 +54,8 @@ class WorkerClient:
         self._recv_thread_running = True
         self.recv_thread.start()
 
+        self.finished_tasks = {}
+
     def _start_workers(self):
         self.worker_processes = []
         for worker_id in range(self.num_workers):
@@ -65,6 +67,7 @@ class WorkerClient:
             )
             process.start()
             self.worker_processes.append(process)
+        time.sleep(10)
 
     def _wait_for_workers_ready(self, timeout: float = 10):
         waiting_workers = set(range(self.num_workers))
@@ -86,6 +89,24 @@ class WorkerClient:
 
     def send(self, msg: List[Dict[str, Any]], index: int):
         self._send(msg, index)
+
+    async def get_result(self, task_id, timeout: float = 20):
+        """For testing only"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if task_id in self.finished_tasks:
+                return self.finished_tasks[task_id]
+            if self.output_queue.qsize() > 0:
+                idx, msg = self.output_queue.get_nowait()
+                assert "task_id" in msg
+                self.finished_tasks[msg["task_id"]] = msg
+            await asyncio.sleep(0.1)
+        
+        if task_id not in self.finished_tasks:
+            return None
+        return self.finished_tasks[task_id]
+
+
 
     def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
         assert isinstance(msg, list)
