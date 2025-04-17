@@ -90,7 +90,7 @@ class WorkerClient:
     def send(self, msg: List[Dict[str, Any]], index: int):
         self._send(msg, index)
 
-    async def get_result(self, task_id, timeout: float = 20):
+    async def get_output_with_task_id(self, task_id, timeout: float = 20):
         """For testing only"""
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -105,7 +105,14 @@ class WorkerClient:
         if task_id not in self.finished_tasks:
             return None
         return self.finished_tasks[task_id]
-
+    
+    def get_output_nowait(self):
+        if self.output_queue.qsize() > 0:
+            return self.output_queue.get_nowait()
+        return None
+    
+    def get_output(self):
+        return self.output_queue.get()
 
 
     def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
@@ -133,6 +140,12 @@ class WorkerClient:
                     self.output_queue.put((idx, m))
             else:
                 logger.debug(f"No message received from worker {idx}")
+    
+    def get_worker_status_no_wait(self):
+        pass
+
+    def get_worker_status(self):
+        pass
 
     def close(self):
         for worker_process in self.worker_processes:

@@ -171,7 +171,7 @@ def test_multi_worker_multi_step():
             ],
             index=index,
         )
-        result = await client.get_result(task_id)
+        result = await client.get_output_with_task_id(task_id)
         assert result["result"]["success"] == True
 
         task_id = f"task_{uuid.uuid4().hex[:8]}"
@@ -186,7 +186,7 @@ def test_multi_worker_multi_step():
             ],
             index=index,
         )
-        result = await client.get_result(task_id)
+        result = await client.get_output_with_task_id(task_id)
         assert result["result"]["success"] == True
         page_id = result["page_id"]
 
@@ -203,7 +203,7 @@ def test_multi_worker_multi_step():
             ],
             index=index,
         )
-        result = await client.get_result(task_id)
+        result = await client.get_output_with_task_id(task_id)
         assert result["result"]["success"] == True
         result = result["result"]
         assert "observation" in result, result
@@ -219,8 +219,3 @@ def test_multi_worker_multi_step():
     
     asyncio.run(main())
     client.close()
-
-# if __name__ == "__main__":
-#     # test_worker_client_communication_sync()
-#     # test_multi_worker_client_communication_sync()
-#     test_multi_worker_multi_step()
