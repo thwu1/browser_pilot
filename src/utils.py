@@ -1,3 +1,4 @@
+import json
 from typing import Any, Optional, Union
 import zmq
 import zmq.asyncio
@@ -49,3 +50,13 @@ def make_zmq_socket(
         socket.connect(path)
 
     return socket
+
+
+class JsonEncoder:
+    def __call__(self, obs):
+        return json.dumps(obs).encode()
+
+
+class JsonDecoder:
+    def __call__(self, obs):
+        return json.loads(obs.decode())
