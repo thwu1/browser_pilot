@@ -67,7 +67,7 @@ class WorkerClient:
             )
             process.start()
             self.worker_processes.append(process)
-        time.sleep(10)
+        time.sleep(3)
 
     def _wait_for_workers_ready(self, timeout: float = 10):
         waiting_workers = set(range(self.num_workers))
@@ -128,7 +128,6 @@ class WorkerClient:
             index = int(msg[0])
             return index, self.decoder(msg[1])
         except zmq.Again:
-            # time.sleep(1)
             return None, None
 
     def _recv_thread(self):

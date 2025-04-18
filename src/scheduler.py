@@ -33,11 +33,9 @@ class SchedulerOutput:
     # Optional field for any extra metadata you might want to include
     metadata: Union[Dict[str, Any], None] = None 
 
-def create_scheduler_output(task_id: str, worker_id: str) -> SchedulerOutput:
-    return SchedulerOutput(task_assignments={task_id: worker_id})
-
-def create_scheduler_output_from_dict(data: Dict[str, str]) -> SchedulerOutput:
-    return SchedulerOutput(task_assignments=data)
+    @staticmethod
+    def from_dict(data: Dict[str, str]) -> "SchedulerOutput":
+        return SchedulerOutput(task_assignments=data)
 
 class SchedulerType(Enum):
     """Types of scheduling strategies"""
@@ -83,9 +81,7 @@ class RoundRobinScheduler:
 # Test the round-robin scheduler
 if __name__ == "__main__":
     # Create a sample scheduler output with multiple assignments
-    scheduler_output = create_scheduler_output("task_1", "worker_1")
-    scheduler_output.task_assignments["task_2"] = "worker_2"
-    scheduler_output.task_assignments["task_3"] = "worker_3"
+    scheduler_output = SchedulerOutput.from_dict({"task_1": "worker_1", "task_2": "worker_2", "task_3": "worker_3"})
     
     print(scheduler_output)
     # Convert the dataclass instance to a dictionary using asdict
