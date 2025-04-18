@@ -19,9 +19,10 @@ from worker import AsyncBrowserWorkerProc
 from typing import List
 import queue
 import threading
+from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG, handlers=[logging.StreamHandler(), logging.FileHandler("worker_client.log")])
 logger = logging.getLogger(__name__)
 
 
@@ -73,13 +74,11 @@ class WorkerClient:
         waiting_workers = set(range(self.num_workers))
         start_time = time.time()
         while waiting_workers and time.time() - start_time < timeout:
-            idx, msg = self._recv()
-            if msg:
-                if msg[0] == "READY":
-                    waiting_workers.remove(idx)
-                    self.workers_status[idx]["ready"] = True
-                else:
-                    raise ValueError(f"Worker {idx} returned {msg}")
+            idx, msg_type, msg = self._recv()
+            if msg_type == MSG_TYPE_READY:
+                waiting_workers.remove(idx)
+                self.workers_status[idx]["ready"] = True
+            logger.debug(f"Received message from worker {idx}: {msg}")
         if waiting_workers:
             raise ValueError(
                 f"Timeout after {timeout} seconds, {waiting_workers} workers are not ready"
@@ -124,21 +123,25 @@ class WorkerClient:
     def _recv(self):
         try:
             msg = self.output_socket.recv_multipart(flags=zmq.NOBLOCK)
-            assert len(msg) == 2, f"Expected 2 parts, got {len(msg)}"
+            assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
             index = int(msg[0])
-            return index, self.decoder(msg[1])
+            msg_type = msg[1]
+            return index, msg_type, self.decoder(msg[2])
         except zmq.Again:
-            return None, None
+            return None, None, None
 
     def _recv_thread(self):
         while self._recv_thread_running:
-            idx, msg = self._recv()
-            if msg:
+            idx, msg_type, msg = self._recv()
+            # assert False, {"idx": idx, "msg_type": msg_type, "msg": msg}
+            if msg_type == MSG_TYPE_OUTPUT and msg:
+                # assert False, {"idx": idx, "msg_type": msg_type, "msg": msg}
                 for m in msg:
                     logger.info(f"Received message from worker {idx}: {m}")
                     self.output_queue.put((idx, m))
-            else:
-                logger.debug(f"No message received from worker {idx}")
+            elif msg_type == MSG_TYPE_STATUS and msg:
+                # assert False, {"idx": idx, "msg_type": msg_type, "msg": msg}
+                self.workers_status[idx] = msg[0]
     
     def get_worker_status_no_wait(self):
         pass

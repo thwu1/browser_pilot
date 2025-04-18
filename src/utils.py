@@ -4,6 +4,10 @@ import zmq
 import zmq.asyncio
 import psutil
 
+MSG_TYPE_READY = b"R"
+MSG_TYPE_STATUS = b"S"
+MSG_TYPE_OUTPUT = b"O"
+
 
 # Adapted from: https://github.com/sgl-project/sglang/blob/v0.4.1/python/sglang/srt/utils.py#L783 # noqa: E501
 def make_zmq_socket(

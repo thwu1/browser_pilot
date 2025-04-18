@@ -24,7 +24,8 @@ import zmq
 import traceback
 from utils import make_zmq_socket
 from utils import JsonEncoder, JsonDecoder
-import weakref
+from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
+import psutil
 
 # Configure logging
 logging.basicConfig(
@@ -65,15 +66,23 @@ class BrowserWorkerTask:
     page_id: Optional[str] = None
     command: str = ""
     params: Dict[str, Any] = None
-    timestamp: float = 0
+
+    engine_recv_timestamp: float = 0
+    engine_send_timestamp: float = 0
+    worker_recv_timestamp: float = 0
+    worker_start_process_timestamp: float = 0
+    worker_finish_process_timestamp: float = 0
+    worker_send_timestamp: float = 0
 
     def __post_init__(self):
         assert self.task_id != "", "task_id must be specified"
         assert self.command != "", "command must be specified"
+        # assert self.engine_recv_timestamp != 0, "engine_recv_timestamp must be specified"
+        # assert self.engine_send_timestamp != 0, "engine_send_timestamp must be specified"
         if self.params is None:
             self.params = {}
-        if self.timestamp == 0:
-            self.timestamp = time.time()
+        if self.worker_recv_timestamp == 0:
+            self.worker_recv_timestamp = time.time()
 
 
 @dataclass
@@ -95,6 +104,25 @@ class ContextInfo:
             self.creation_time = time.time()
         self.last_activity_time = time.time()
 
+@dataclass
+class WorkerStatus:
+    index: int
+    ready: bool
+    num_running_tasks: int
+    num_waiting_tasks: int
+    num_finished_tasks: int
+    num_contexts: int
+    num_pages: int
+    avg_latency_ms: float
+    throughput_per_sec: float
+    cpu_usage_percent: float
+    memory_usage_mb: float
+    error_rate: float
+    last_activity: float
+    last_heartbeat: float
+
+    def to_dict(self):
+        return json.dumps(self.__dict__)
 
 class AsyncBrowserWorker:
     """
@@ -116,6 +144,18 @@ class AsyncBrowserWorker:
         self.input_queue = asyncio.Queue()
         self.output_queue = asyncio.Queue()
 
+        # status
+        self.lam = 0.9
+        self.ready = False
+        self.num_running_tasks = 0
+        self.num_finished_tasks = 0
+        self.num_contexts = 0
+        self.num_pages = 0
+        self.avg_latency_ms = 0
+        self.throughput_per_sec = 0
+        self.error_rate = 0
+        self.last_activity_time = time.time()
+
         logger.info(f"Initializing BrowserWorker with ID: {self.index}")
 
     async def start(self):
@@ -135,6 +175,7 @@ class AsyncBrowserWorker:
             browser_type = self.playwright.chromium
             self.browser = await browser_type.launch(headless=BROWSER_HEADLESS)
 
+            self.ready = True
             logger.info(f"BrowserWorker {self.index} started successfully")
         except Exception as e:
             self.running = False
@@ -142,6 +183,9 @@ class AsyncBrowserWorker:
             if self.playwright:
                 await self.playwright.stop()
             raise e
+    
+    def is_ready(self) -> bool:
+        return self.ready
 
     async def add_task(self, task: Dict):
         """Add a task to the queue for execution"""
@@ -170,6 +214,7 @@ class AsyncBrowserWorker:
                         f"Received task {task.task_id}, step out of blocking get"
                     )
                     self.event_loop.create_task(self._execute_task(task))
+                    self.num_running_tasks += 1
                     logger.debug(
                         f"Start executing task {task.task_id}, input queue size: {self.input_queue.qsize()}"
                     )
@@ -181,6 +226,7 @@ class AsyncBrowserWorker:
                     )
                     task = self.input_queue.get_nowait()
                     self.event_loop.create_task(self._execute_task(task))
+                    self.num_running_tasks += 1
                     logger.debug(
                         f"Start executing task {task.task_id}, input queue size: {self.input_queue.qsize()}"
                     )
@@ -201,15 +247,20 @@ class AsyncBrowserWorker:
             )
 
             # Put result in the result queue
+            finish_timestamp = time.time()
             self.output_queue.put_nowait(
                 {
                     "task_id": task.task_id,
                     "page_id": result.get("page_id", None),
                     "result": result,
                     "success": True,
-                    "timestamp": time.time(),
+                    "timestamp": finish_timestamp,
                 }
             )
+            self.last_activity_time = time.time()
+            self.num_finished_tasks += 1
+            self.avg_latency_ms = self.lam * self.avg_latency_ms + (finish_timestamp - task.worker_recv_timestamp) * (1 - self.lam)
+            self.error_rate = self.lam * self.error_rate + (1 - self.lam)
 
         except Exception as e:
             # Log error and queue error result
@@ -222,23 +273,9 @@ class AsyncBrowserWorker:
                     "timestamp": time.time(),
                 }
             )
-            # print("put error result in queue, result queue size: ", self.result_queue.qsize())
-
-    # async def _execute_task(self, task: BrowserWorkerTask):
-    #     try:
-    #         self.result_queue.put_nowait({
-    #             "success": True,
-    #             # "task_id": task.task_id,
-    #             "result": {"context_id": task.context_id}
-    #         })
-    #         print("put success result in queue, queue size: ", self.result_queue.qsize())
-    #     except Exception as e:
-    #         logger.error(f"Error executing task {task.task_id}: {str(e)}")
-    #         self.result_queue.put_nowait({
-    #             "success": False,
-    #             "task_id": task.task_id,
-    #             "error": str(e)
-    #         })
+            self.error_rate = self.lam * self.error_rate + (1 - self.lam)
+        finally:
+            self.num_running_tasks -= 1
 
     # async def stop(self):
     #     """Stop the browser worker and cleanup resources"""
@@ -517,7 +554,7 @@ class AsyncBrowserWorker:
             params = params or {}
             result = {}
 
-            logger.info(f"Executing command: {command} with params: {params}")
+            logger.debug(f"Executing command: {command} with params: {params}")
 
             if command == "create_context":
                 await self.create_context(context_id, params)
@@ -542,8 +579,6 @@ class AsyncBrowserWorker:
                     "page_id": page_id,
                     "context_id": context_id,
                 }
-
-                logger.info(f"===================={self.contexts[context_id]}")
 
             elif command == "browser_navigate_back":
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
@@ -888,31 +923,24 @@ class AsyncBrowserWorker:
                 context_info.state = ContextState.FAILED
             raise
 
-    async def get_status(self) -> Dict[str, Any]:
-        """
-        Get the status of the browser worker
-
-        Returns:
-            Status information
-        """
-        contexts_status = {}
-        for context_id, context_info in self.contexts.items():
-            contexts_status[context_id] = {
-                "state": context_info.state.value,
-                "creation_time": context_info.creation_time,
-                "last_activity_time": context_info.last_activity_time,
-                "page_count": len(context_info.pages) if context_info.pages else 0,
-                "hibernated": context_info.state == ContextState.HIBERNATED,
-            }
-
-        return {
-            "index": self.index,
-            "running": self.running,
-            "context_count": len(self.contexts),
-            "max_contexts": MAX_CONTEXTS_PER_PROCESS,
-            "last_health_check": self.last_health_check,
-            "contexts": contexts_status,
-        }
+    def get_status(self) -> WorkerStatus:
+        return WorkerStatus(
+            index=self.index,
+            ready=self.ready,
+            num_running_tasks=self.num_running_tasks,
+            num_waiting_tasks=self.input_queue.qsize(),
+            num_finished_tasks=self.num_finished_tasks,
+            num_contexts=len(self.contexts),
+            num_pages=sum(len(context_info.pages) for context_info in self.contexts.values()),
+            avg_latency_ms=self.avg_latency_ms,
+            throughput_per_sec=0,
+            cpu_usage_percent=0,
+            memory_usage_mb=0,
+            error_rate=self.error_rate,
+            last_heartbeat=0,   
+            last_activity=self.last_activity_time,
+        )
+        
 
     async def _get_or_create_page(self, context_id: str, page_id: str = None) -> Page:
         """
@@ -1005,33 +1033,37 @@ class AsyncBrowserWorkerProc:
         self.worker.close()
 
     def _send_ready(self):
+        assert self.worker.is_ready()
         self.output_socket.send_multipart(
-            [self.identity, self.encoder(["READY"])], flags=zmq.NOBLOCK
+            [self.identity, MSG_TYPE_READY, self.encoder(["READY"])], flags=zmq.NOBLOCK
         )
 
-    @staticmethod
-    def run_background_loop(index: int, input_path: str, output_path: str):
+    @classmethod
+    def run_background_loop(cls, index: int, input_path: str, output_path: str):
         """
         Run a worker process in the background with ZMQ communication
 
         Args:
-            worker_index: Unique identifier for this worker
+            index: Unique identifier for this worker
             input_path: Path to receive tasks from
             output_path: Path to send results back to
         """
-        process = AsyncBrowserWorkerProc(index, input_path, output_path)
+        proc = cls(index, input_path, output_path)
+        worker = proc.worker
 
         async def main_loop():
-            await process.worker.start()
+            await worker.start()
             logger.info(
                 f"Worker started with input_path={input_path}, output_path={output_path}"
             )
-            process._send_ready()
+            # if worker.is_ready():
+            proc._send_ready()
 
             tasks = [
-                process.worker.process_task_queue_loop(),
-                process.process_incoming_socket_loop(),
-                process.process_outgoing_socket_loop(),
+                worker.process_task_queue_loop(),
+                proc.process_incoming_socket_loop(),
+                proc.process_outgoing_socket_loop(),
+                proc.send_heartbeat_loop(),
             ]
             await asyncio.gather(*tasks)
 
@@ -1043,7 +1075,7 @@ class AsyncBrowserWorkerProc:
             logger.error(f"Fatal error in worker: {e}")
             logger.error(traceback.format_exc())
         finally:
-            process.close()
+            proc.close()
 
     async def _recv(self):
         try:
@@ -1060,9 +1092,9 @@ class AsyncBrowserWorkerProc:
             logger.error(f"Error receiving message: {e}")
             return None
 
-    async def _send(self, outputs: List[Dict[str, Any]]):
+    async def _send(self, outputs: List[Dict[str, Any]], msg_type: bytes):
         assert isinstance(outputs, list)
-        self.output_socket.send_multipart([self.identity, self.encoder(outputs)])
+        self.output_socket.send_multipart([self.identity, msg_type, self.encoder(outputs)])
 
     async def process_incoming_socket_loop(self):
         while self.worker.running:
@@ -1097,7 +1129,23 @@ class AsyncBrowserWorkerProc:
                 outputs.append(self.worker.output_queue.get_nowait())
             assert len(outputs) > 0, "No outputs to send, this should not happen"
             logger.debug(f"Sending {len(outputs)} outputs to client")
-            await self._send(outputs)
+            await self._send(outputs, MSG_TYPE_OUTPUT)
+
+    async def send_heartbeat_loop(self):
+        prev_num_finished_tasks = 0
+        prev_time = time.time()
+        while self.worker.running:
+            await asyncio.sleep(1)
+            status = self.worker.get_status()
+            status.last_heartbeat = time.time()
+            status.memory_usage_mb = psutil.Process().memory_info().rss / 1024 / 1024
+            status.cpu_usage_percent = psutil.Process().cpu_percent()
+            status.throughput_per_sec = (status.num_finished_tasks - prev_num_finished_tasks) / (time.time() - prev_time)
+
+            prev_num_finished_tasks = status.num_finished_tasks
+            prev_time = time.time()
+            await self._send([status.to_dict()], MSG_TYPE_STATUS)
+
 
     def stop(self):
         self.worker.running = False
