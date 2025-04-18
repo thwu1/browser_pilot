@@ -7,6 +7,7 @@ from typing import Dict, List, Set, Any, Optional, Tuple
 from dataclasses import dataclass
 from worker_client import BrowserWorkerClient, make_client
 import signal
+import queue
 
 logger = logging.getLogger(__name__)
 

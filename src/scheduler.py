@@ -33,9 +33,9 @@ class SchedulerOutput:
     # Optional field for any extra metadata you might want to include
     metadata: Union[Dict[str, Any], None] = None 
 
-    @staticmethod
-    def from_dict(data: Dict[str, str]) -> "SchedulerOutput":
-        return SchedulerOutput(task_assignments=data)
+    @classmethod
+    def from_dict(cls, data: Dict[str, str]) -> "SchedulerOutput":
+        return cls(task_assignments=data)
 
 class SchedulerType(Enum):
     """Types of scheduling strategies"""
