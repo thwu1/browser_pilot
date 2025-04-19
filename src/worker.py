@@ -59,20 +59,25 @@ class ContextState(Enum):
 
 @dataclass
 class BrowserWorkerTask:
-    """Task for browser worker execution"""
+    """
+    Task for browser worker execution
+    task_id and command are required fields
+    all other fields are optional or will be set by the engine or worker
+    """
 
+    # task_id: str = ""
     task_id: str = ""
     context_id: Optional[str] = None
     page_id: Optional[str] = None
     command: str = ""
-    params: Dict[str, Any] = None
+    params: Optional[Dict[str, Any]] = None
 
-    engine_recv_timestamp: float = 0
-    engine_send_timestamp: float = 0
-    worker_recv_timestamp: float = 0
-    worker_start_process_timestamp: float = 0
-    worker_finish_process_timestamp: float = 0
-    worker_send_timestamp: float = 0
+    engine_recv_timestamp: Optional[float] = None
+    engine_send_timestamp: Optional[float] = None
+    worker_recv_timestamp: Optional[float] = None
+    worker_start_process_timestamp: Optional[float] = None
+    worker_finish_process_timestamp: Optional[float] = None
+    worker_send_timestamp: Optional[float] = None
 
     def __post_init__(self):
         assert self.task_id != "", "task_id must be specified"
