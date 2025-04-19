@@ -106,22 +106,28 @@ class ContextInfo:
 
 @dataclass
 class WorkerStatus:
-    index: int
-    ready: bool
-    num_running_tasks: int
-    num_waiting_tasks: int
-    num_finished_tasks: int
-    num_contexts: int
-    num_pages: int
-    avg_latency_ms: float
-    throughput_per_sec: float
-    cpu_usage_percent: float
-    memory_usage_mb: float
-    error_rate: float
-    last_activity: float
-    last_heartbeat: float
+    """Status information for a browser worker
+
+    Contains metrics and state information about the worker, including task counts,
+    resource usage, and performance metrics. Use EMA continuous metrics.
+    """
+    index: int                # Worker index/ID
+    running: bool             # Whether the worker is running
+    num_contexts: int         # Number of browser contexts
+    num_pages: int            # Total number of pages across all contexts
+    error_rate: float         # Rate of task errors
+    last_activity: float      # Timestamp of last activity
+    last_heartbeat: float     # Timestamp of last heartbeat
+    num_running_tasks: int    # Number of tasks currently being executed
+    num_waiting_tasks: int    # Number of tasks waiting in the queue
+    num_finished_tasks: int   # Total number of tasks completed
+    avg_latency_ms: float     # Average task execution latency in milliseconds
+    throughput_per_sec: float # Tasks completed per second
+    cpu_usage_percent: Optional[float]  # CPU usage percentage
+    memory_usage_mb: Optional[float]    # Memory usage in MB
 
     def to_dict(self):
+        """Convert the status to a JSON string"""
         return json.dumps(self.__dict__)
 
 class AsyncBrowserWorker:
@@ -130,13 +136,12 @@ class AsyncBrowserWorker:
     It handles browser commands, observations, and provides reliability features.
     """
 
-    def __init__(self, index: int = None):
+    def __init__(self, index: int = None, ema_factor: float = 0.9):
         """Initialize the browser worker"""
         self.index = index
         self.browser: Optional[Browser] = None
         self.playwright = None
         self.contexts: Dict[str, ContextInfo] = {}
-        self.running = False
         self.last_health_check = 0
         self.event_loop = None
 
@@ -145,10 +150,11 @@ class AsyncBrowserWorker:
         self.output_queue = asyncio.Queue()
 
         # status
-        self.lam = 0.9
-        self.ready = False
+        self.ema_factor = ema_factor  # Exponential moving average factor
+        self.running = False
         self.num_running_tasks = 0
         self.num_finished_tasks = 0
+        self.num_error_tasks = 0  # Track number of tasks that resulted in errors
         self.num_contexts = 0
         self.num_pages = 0
         self.avg_latency_ms = 0
@@ -175,7 +181,7 @@ class AsyncBrowserWorker:
             browser_type = self.playwright.chromium
             self.browser = await browser_type.launch(headless=BROWSER_HEADLESS)
 
-            self.ready = True
+            self.running = True
             logger.info(f"BrowserWorker {self.index} started successfully")
         except Exception as e:
             self.running = False
@@ -183,9 +189,9 @@ class AsyncBrowserWorker:
             if self.playwright:
                 await self.playwright.stop()
             raise e
-    
+
     def is_ready(self) -> bool:
-        return self.ready
+        return self.running
 
     async def add_task(self, task: Dict):
         """Add a task to the queue for execution"""
@@ -259,8 +265,8 @@ class AsyncBrowserWorker:
             )
             self.last_activity_time = time.time()
             self.num_finished_tasks += 1
-            self.avg_latency_ms = self.lam * self.avg_latency_ms + (finish_timestamp - task.worker_recv_timestamp) * (1 - self.lam)
-            self.error_rate = self.lam * self.error_rate + (1 - self.lam)
+            self.avg_latency_ms = self.ema_factor * self.avg_latency_ms + (finish_timestamp - task.worker_recv_timestamp) * (1 - self.ema_factor)
+            self.error_rate = self.ema_factor * self.error_rate
 
         except Exception as e:
             # Log error and queue error result
@@ -273,7 +279,9 @@ class AsyncBrowserWorker:
                     "timestamp": time.time(),
                 }
             )
-            self.error_rate = self.lam * self.error_rate + (1 - self.lam)
+            # Update error metrics
+            self.num_error_tasks += 1
+            self.error_rate = self.ema_factor * self.error_rate + (1 - self.ema_factor)
         finally:
             self.num_running_tasks -= 1
 
@@ -336,7 +344,6 @@ class AsyncBrowserWorker:
             context_id=context_id,
             state=ContextState.INITIALIZING,
         )
-        self.contexts[context_id] = context_info
 
         try:
             # Create browser context with provided options
@@ -383,6 +390,7 @@ class AsyncBrowserWorker:
             context_info.browser_context = browser_context
             context_info.state = ContextState.ACTIVE
             context_info.last_activity_time = time.time()
+            self.contexts[context_id] = context_info
 
             logger.info(
                 f"Created browser context {context_id}, context info: {context_info}"
@@ -782,7 +790,7 @@ class AsyncBrowserWorker:
 
             elif command == "browser_close":
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
-                await page.close()
+                await self._close_page(page)
                 # Remove page from pages dictionary
                 for page_id, p in list(context_info.pages.items()):
                     if p == page:
@@ -865,6 +873,10 @@ class AsyncBrowserWorker:
             if "Target closed" in str(e) or "Session closed" in str(e):
                 context_info.state = ContextState.FAILED
             raise
+        
+    async def _close_page(self, page: Page):
+        await page.close()
+        self.num_pages -= 1
 
     async def _get_observation(
         self, context_id: str, observation_type: str, params: Dict[str, Any] = None
@@ -924,23 +936,37 @@ class AsyncBrowserWorker:
             raise
 
     def get_status(self) -> WorkerStatus:
+        """Get the current status of the worker
+
+        Returns a WorkerStatus object with the current state of the worker,
+        including metrics like number of tasks, contexts, and performance data.
+        Some fields (CPU, memory, throughput) are populated by the heartbeat loop.
+        """
+        # Calculate the number of pages across all contexts
+        try:
+            num_pages = sum(len(context_info.pages) for context_info in self.contexts.values())
+            assert num_pages == self.num_pages
+        except Exception:
+            num_pages = 0
+            assert self.num_pages == 0
+
         return WorkerStatus(
             index=self.index,
-            ready=self.ready,
+            running=self.running,
             num_running_tasks=self.num_running_tasks,
             num_waiting_tasks=self.input_queue.qsize(),
             num_finished_tasks=self.num_finished_tasks,
             num_contexts=len(self.contexts),
-            num_pages=sum(len(context_info.pages) for context_info in self.contexts.values()),
+            num_pages=self.num_pages,
             avg_latency_ms=self.avg_latency_ms,
-            throughput_per_sec=0,
-            cpu_usage_percent=0,
-            memory_usage_mb=0,
+            throughput_per_sec=self.throughput_per_sec,  # Will be updated by heartbeat loop
+            cpu_usage_percent=0,  # Will be updated by heartbeat loop
+            memory_usage_mb=0,    # Will be updated by heartbeat loop
             error_rate=self.error_rate,
-            last_heartbeat=0,   
+            last_heartbeat=0,     # Will be updated by heartbeat loop
             last_activity=self.last_activity_time,
         )
-        
+
 
     async def _get_or_create_page(self, context_id: str, page_id: str = None) -> Page:
         """
@@ -965,6 +991,7 @@ class AsyncBrowserWorker:
 
         page = await context_info.browser_context.new_page()
         context_info.pages[page_id] = page
+        self.num_pages += 1
 
         return page, page_id
 
@@ -1056,8 +1083,8 @@ class AsyncBrowserWorkerProc:
             logger.info(
                 f"Worker started with input_path={input_path}, output_path={output_path}"
             )
-            # if worker.is_ready():
-            proc._send_ready()
+            if worker.is_ready():
+                proc._send_ready()
 
             tasks = [
                 worker.process_task_queue_loop(),
@@ -1132,19 +1159,106 @@ class AsyncBrowserWorkerProc:
             await self._send(outputs, MSG_TYPE_OUTPUT)
 
     async def send_heartbeat_loop(self):
+        """Send periodic heartbeat status updates to the client
+
+        This loop runs continuously while the worker is running and sends
+        status updates to the client at regular intervals. It calculates
+        various metrics like CPU usage, memory usage, and throughput.
+
+        Optimized for minimal performance impact.
+        """
+        # Initialize tracking variables for metrics calculation
         prev_num_finished_tasks = 0
         prev_time = time.time()
-        while self.worker.running:
-            await asyncio.sleep(1)
-            status = self.worker.get_status()
-            status.last_heartbeat = time.time()
-            status.memory_usage_mb = psutil.Process().memory_info().rss / 1024 / 1024
-            status.cpu_usage_percent = psutil.Process().cpu_percent()
-            status.throughput_per_sec = (status.num_finished_tasks - prev_num_finished_tasks) / (time.time() - prev_time)
+        heartbeat_interval = 1.0  # Send heartbeat every second
+        resource_check_interval = 5  # Check CPU/memory every 5 heartbeats
+        heartbeat_count = 0
 
-            prev_num_finished_tasks = status.num_finished_tasks
-            prev_time = time.time()
-            await self._send([status.to_dict()], MSG_TYPE_STATUS)
+        process = psutil.Process()
+        process.cpu_percent()
+
+        # Cache for resource metrics
+        cached_cpu_percent = 0
+        cached_memory_mb = 0
+
+        # Track error counts for error rate calculation
+        prev_error_count = 0
+
+        logger.info(f"Starting heartbeat loop for worker {self.worker.index}")
+
+        try:
+            while self.worker.running:
+                # Wait for the heartbeat interval
+                await asyncio.sleep(heartbeat_interval)
+                current_time = time.time()
+                heartbeat_count += 1
+
+                # Get the current worker status
+                status = self.worker.get_status()
+
+                # Update timestamp
+                status.last_heartbeat = current_time
+
+                # Only check resource usage periodically to reduce overhead
+                if heartbeat_count % resource_check_interval == 0:
+                    # Calculate memory usage
+                    try:
+                        memory_info = process.memory_info()
+                        cached_memory_mb = memory_info.rss / (1024 * 1024)  # Convert bytes to MB
+                    except Exception as e:
+                        logger.warning(f"Error getting memory usage: {e}")
+
+                    # Calculate CPU usage
+                    try:
+                        # interval=None uses time since last call
+                        cached_cpu_percent = process.cpu_percent(interval=None)
+                    except Exception as e:
+                        logger.warning(f"Error getting CPU usage: {e}")
+
+                # Use cached values
+                status.memory_usage_mb = cached_memory_mb
+                status.cpu_usage_percent = cached_cpu_percent
+
+                # Calculate throughput (tasks per second)
+                elapsed_time = current_time - prev_time
+                if elapsed_time > 0:
+                    tasks_completed = status.num_finished_tasks - prev_num_finished_tasks
+                    status.throughput_per_sec = tasks_completed / elapsed_time
+                else:
+                    status.throughput_per_sec = 0
+
+                # Calculate error rate based on tracked errors in AsyncBrowserWorker
+                current_error_count = self.worker.num_error_tasks
+                if elapsed_time > 0:
+                    new_errors = current_error_count - prev_error_count
+                    error_rate = new_errors / elapsed_time if elapsed_time > 0 else 0
+                    # Use exponential moving average for error rate
+                    status.error_rate = self.worker.ema_factor * status.error_rate + (1 - self.worker.ema_factor) * error_rate
+                    prev_error_count = current_error_count
+
+                # Update tracking variables for next iteration
+                prev_num_finished_tasks = status.num_finished_tasks
+                prev_time = current_time
+
+                # Send the status update to the client
+                try:
+                    await self._send([status.to_dict()], MSG_TYPE_STATUS)
+                    # Only log detailed heartbeat info occasionally to reduce log spam
+                    if heartbeat_count % 10 == 0:
+                        logger.debug(f"Heartbeat worker {self.worker.index}: " +
+                                    f"CPU: {status.cpu_usage_percent:.1f}%, " +
+                                    f"Memory: {status.memory_usage_mb:.1f}MB, " +
+                                    f"Tasks: {status.num_finished_tasks}, " +
+                                    f"Throughput: {status.throughput_per_sec:.2f}/s")
+                except Exception as e:
+                    logger.error(f"Error sending heartbeat: {e}")
+
+        except asyncio.CancelledError:
+            logger.info(f"Heartbeat loop for worker {self.worker.index} cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Error in heartbeat loop: {e}")
+            # Continue running even if there's an error
 
 
     def stop(self):
