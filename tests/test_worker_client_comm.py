@@ -6,9 +6,6 @@ from worker import AsyncBrowserWorkerProc
 import logging
 import asyncio
 
-# logging.basicConfig(level=logging.INFO)
-
-
 def test_worker_client_communication_sync():
     input_path = "ipc://input_sync"
     output_path = "ipc://output_sync"

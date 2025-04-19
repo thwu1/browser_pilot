@@ -44,11 +44,9 @@ class WorkerClient:
         self.encoder = JsonEncoder()
         self.decoder = JsonDecoder()
 
-        self.workers_status: Dict[int, bool] = {
-            i: {"ready": False} for i in range(self.num_workers)
-        }
-        self._start_workers()
+        self.worker_status = {worker_id: {} for worker_id in range(num_workers)}
 
+        self._start_workers()
         self._wait_for_workers_ready()
 
         self.recv_thread = threading.Thread(target=self._recv_thread)
@@ -64,11 +62,10 @@ class WorkerClient:
             process = mp.Process(
                 target=AsyncBrowserWorkerProc.run_background_loop,
                 args=(worker_id, self.input_path, self.output_path),
-                daemon=True,  # Optional: makes process exit when main process exits
+                daemon=True,
             )
             process.start()
             self.worker_processes.append(process)
-        time.sleep(3)
 
     def _wait_for_workers_ready(self, timeout: float = 10):
         waiting_workers = set(range(self.num_workers))
@@ -77,7 +74,6 @@ class WorkerClient:
             idx, msg_type, msg = self._recv()
             if msg_type == MSG_TYPE_READY:
                 waiting_workers.remove(idx)
-                self.workers_status[idx]["ready"] = True
             logger.debug(f"Received message from worker {idx}: {msg}")
         if waiting_workers:
             raise ValueError(
@@ -135,19 +131,18 @@ class WorkerClient:
             idx, msg_type, msg = self._recv()
             # assert False, {"idx": idx, "msg_type": msg_type, "msg": msg}
             if msg_type == MSG_TYPE_OUTPUT and msg:
-                # assert False, {"idx": idx, "msg_type": msg_type, "msg": msg}
                 for m in msg:
                     logger.info(f"Received message from worker {idx}: {m}")
+                    assert isinstance(m, dict)
                     self.output_queue.put((idx, m))
             elif msg_type == MSG_TYPE_STATUS and msg:
-                # assert False, {"idx": idx, "msg_type": msg_type, "msg": msg}
-                self.workers_status[idx] = msg[0]
+                assert isinstance(msg, list)
+                assert isinstance(msg[0], dict)
+                logger.debug(f"Received status from worker {idx}: {msg[0]}")
+                self.worker_status[idx] = msg[0]
     
     def get_worker_status_no_wait(self):
-        pass
-
-    def get_worker_status(self):
-        pass
+        return self.worker_status.copy()
 
     def close(self):
         for worker_process in self.worker_processes:

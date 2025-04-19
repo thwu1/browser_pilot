@@ -86,7 +86,7 @@ class BrowserWorkerTask:
         # assert self.engine_send_timestamp != 0, "engine_send_timestamp must be specified"
         if self.params is None:
             self.params = {}
-        if self.worker_recv_timestamp == 0:
+        if self.worker_recv_timestamp is None:
             self.worker_recv_timestamp = time.time()
 
 
@@ -128,12 +128,12 @@ class WorkerStatus:
     num_finished_tasks: int   # Total number of tasks completed
     avg_latency_ms: float     # Average task execution latency in milliseconds
     throughput_per_sec: float # Tasks completed per second
-    cpu_usage_percent: Optional[float]  # CPU usage percentage
-    memory_usage_mb: Optional[float]    # Memory usage in MB
+    cpu_usage_percent: Optional[float] = None  # CPU usage percentage
+    memory_usage_mb: Optional[float] = None    # Memory usage in MB
 
     def to_dict(self):
-        """Convert the status to a JSON string"""
-        return json.dumps(self.__dict__)
+        """Convert the status to a dictionary"""
+        return self.__dict__
 
 class AsyncBrowserWorker:
     """
@@ -163,7 +163,6 @@ class AsyncBrowserWorker:
         self.num_contexts = 0
         self.num_pages = 0
         self.avg_latency_ms = 0
-        self.throughput_per_sec = 0
         self.error_rate = 0
         self.last_activity_time = time.time()
 
@@ -270,8 +269,8 @@ class AsyncBrowserWorker:
             )
             self.last_activity_time = time.time()
             self.num_finished_tasks += 1
-            self.avg_latency_ms = self.ema_factor * self.avg_latency_ms + (finish_timestamp - task.worker_recv_timestamp) * (1 - self.ema_factor)
-            self.error_rate = self.ema_factor * self.error_rate
+            self.error_rate *= self.ema_factor
+            self.avg_latency_ms = self.ema_factor * self.avg_latency_ms + (finish_timestamp - task.worker_recv_timestamp) * 1000* (1 - self.ema_factor)
 
         except Exception as e:
             # Log error and queue error result
@@ -284,7 +283,6 @@ class AsyncBrowserWorker:
                     "timestamp": time.time(),
                 }
             )
-            # Update error metrics
             self.num_error_tasks += 1
             self.error_rate = self.ema_factor * self.error_rate + (1 - self.ema_factor)
         finally:
@@ -964,12 +962,13 @@ class AsyncBrowserWorker:
             num_contexts=len(self.contexts),
             num_pages=self.num_pages,
             avg_latency_ms=self.avg_latency_ms,
-            throughput_per_sec=self.throughput_per_sec,  # Will be updated by heartbeat loop
-            cpu_usage_percent=0,  # Will be updated by heartbeat loop
-            memory_usage_mb=0,    # Will be updated by heartbeat loop
             error_rate=self.error_rate,
-            last_heartbeat=0,     # Will be updated by heartbeat loop
             last_activity=self.last_activity_time,
+            # The following fields will be updated by the heartbeat loop
+            throughput_per_sec=0,
+            cpu_usage_percent=0,
+            memory_usage_mb=0,
+            last_heartbeat=0,
         )
 
 
@@ -1035,12 +1034,13 @@ class AsyncBrowserWorkerProc:
     receiving tasks from the engine, and sending results back.
     """
 
-    def __init__(self, index: int, input_path: str, output_path: str):
-        logger.info(f"Initializing AsyncBrowserWorkerProc {index}")
+    def __init__(self, index: int, input_path: str, output_path: str, report_cpu_and_memory: bool = False):
         self.index = index
         self.identity = str(index).encode()
         self.input_path = input_path
         self.output_path = output_path
+        self.report_cpu_and_memory = report_cpu_and_memory
+        logger.info(f"Initializing AsyncBrowserWorkerProc {index}")
 
         self.ctx = zmq.Context()
         self.input_socket = make_zmq_socket(
@@ -1170,24 +1170,25 @@ class AsyncBrowserWorkerProc:
         status updates to the client at regular intervals. It calculates
         various metrics like CPU usage, memory usage, and throughput.
 
-        Optimized for minimal performance impact.
+        We fetch status from the worker, and update (Optionally)
+        CPU usage, memory usage, throughput, and last heartbeat time.
         """
-        # Initialize tracking variables for metrics calculation
-        prev_num_finished_tasks = 0
-        prev_time = time.time()
+
         heartbeat_interval = 1.0  # Send heartbeat every second
         resource_check_interval = 5  # Check CPU/memory every 5 heartbeats
         heartbeat_count = 0
 
-        process = psutil.Process()
-        process.cpu_percent()
+        prev_time = time.time()
+        prev_num_finished_tasks = 0
+        prev_throughput_per_sec = 0
 
-        # Cache for resource metrics
-        cached_cpu_percent = 0
-        cached_memory_mb = 0
+        if self.report_cpu_and_memory:
+            import psutil
+            process = psutil.Process()
+            process.cpu_percent()
 
-        # Track error counts for error rate calculation
-        prev_error_count = 0
+            cached_cpu_percent = 0
+            cached_memory_mb = 0
 
         logger.info(f"Starting heartbeat loop for worker {self.worker.index}")
 
@@ -1198,73 +1199,41 @@ class AsyncBrowserWorkerProc:
                 current_time = time.time()
                 heartbeat_count += 1
 
-                # Get the current worker status
                 status = self.worker.get_status()
-
-                # Update timestamp
                 status.last_heartbeat = current_time
 
                 # Only check resource usage periodically to reduce overhead
-                if heartbeat_count % resource_check_interval == 0:
-                    # Calculate memory usage
-                    try:
+                if self.report_cpu_and_memory:
+                    if heartbeat_count % resource_check_interval == 0:
                         memory_info = process.memory_info()
                         cached_memory_mb = memory_info.rss / (1024 * 1024)  # Convert bytes to MB
-                    except Exception as e:
-                        logger.warning(f"Error getting memory usage: {e}")
-
-                    # Calculate CPU usage
-                    try:
-                        # interval=None uses time since last call
                         cached_cpu_percent = process.cpu_percent(interval=None)
-                    except Exception as e:
-                        logger.warning(f"Error getting CPU usage: {e}")
 
-                # Use cached values
-                status.memory_usage_mb = cached_memory_mb
-                status.cpu_usage_percent = cached_cpu_percent
+                    status.memory_usage_mb = cached_memory_mb
+                    status.cpu_usage_percent = cached_cpu_percent
 
-                # Calculate throughput (tasks per second)
-                elapsed_time = current_time - prev_time
-                if elapsed_time > 0:
-                    tasks_completed = status.num_finished_tasks - prev_num_finished_tasks
-                    status.throughput_per_sec = tasks_completed / elapsed_time
-                else:
-                    status.throughput_per_sec = 0
-
-                # Calculate error rate based on tracked errors in AsyncBrowserWorker
-                current_error_count = self.worker.num_error_tasks
-                if elapsed_time > 0:
-                    new_errors = current_error_count - prev_error_count
-                    error_rate = new_errors / elapsed_time if elapsed_time > 0 else 0
-                    # Use exponential moving average for error rate
-                    status.error_rate = self.worker.ema_factor * status.error_rate + (1 - self.worker.ema_factor) * error_rate
-                    prev_error_count = current_error_count
+                new_tasks_completed = status.num_finished_tasks - prev_num_finished_tasks
+                status.throughput_per_sec = prev_throughput_per_sec * self.worker.ema_factor + new_tasks_completed * (1 - self.worker.ema_factor)
 
                 # Update tracking variables for next iteration
                 prev_num_finished_tasks = status.num_finished_tasks
+                prev_throughput_per_sec = status.throughput_per_sec
                 prev_time = current_time
 
-                # Send the status update to the client
-                try:
-                    await self._send([status.to_dict()], MSG_TYPE_STATUS)
-                    # Only log detailed heartbeat info occasionally to reduce log spam
-                    if heartbeat_count % 10 == 0:
-                        logger.debug(f"Heartbeat worker {self.worker.index}: " +
-                                    f"CPU: {status.cpu_usage_percent:.1f}%, " +
-                                    f"Memory: {status.memory_usage_mb:.1f}MB, " +
-                                    f"Tasks: {status.num_finished_tasks}, " +
-                                    f"Throughput: {status.throughput_per_sec:.2f}/s")
-                except Exception as e:
-                    logger.error(f"Error sending heartbeat: {e}")
+                await self._send([status.to_dict()], MSG_TYPE_STATUS)
+                logger.debug(f"Heartbeat worker {self.worker.index}: " +
+                            f"CPU: {status.cpu_usage_percent:.1f}%, " +
+                            f"Memory: {status.memory_usage_mb:.1f}MB, " +
+                            f"Tasks: {status.num_finished_tasks}, " +
+                            f"Throughput: {status.throughput_per_sec:.2f}/s, " + 
+                            f"Latency: {status.avg_latency_ms:.2f}ms")
 
         except asyncio.CancelledError:
             logger.info(f"Heartbeat loop for worker {self.worker.index} cancelled")
             raise
         except Exception as e:
             logger.error(f"Error in heartbeat loop: {e}")
-            # Continue running even if there's an error
-
+            raise
 
     def stop(self):
         self.worker.running = False
