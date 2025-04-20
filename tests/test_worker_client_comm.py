@@ -26,8 +26,8 @@ def test_worker_client_communication_sync():
             index=0,
         )
 
-    time.sleep(3)
-    assert client.output_queue.qsize() == 5
+    for _ in range(5):
+        client.get_output(timeout=2)
     client.close()
 
 
@@ -51,11 +51,7 @@ def test_worker_client_communication_sync_multi_step():
         index=0,
     )
 
-    time.sleep(3)
-
-    assert client.output_queue.qsize() == 1
-
-    result = client.output_queue.get()
+    result = client.get_output(timeout=2)
     assert result[1]["result"]["success"] == True, result
 
     task_id = f"task_{uuid.uuid4().hex[:8]}"
@@ -71,9 +67,7 @@ def test_worker_client_communication_sync_multi_step():
         index=0,
     )
 
-    time.sleep(3)
-    assert client.output_queue.qsize() == 1
-    result = client.output_queue.get()
+    result = client.get_output(timeout=2)
     assert result[1]["result"]["success"] == True, result
     page_id = result[1]["page_id"]
 
@@ -90,9 +84,7 @@ def test_worker_client_communication_sync_multi_step():
         ],
         index=0,
     )
-    time.sleep(3)
-    assert client.output_queue.qsize() == 1
-    result = client.output_queue.get()
+    result = client.get_output(timeout=2)
     assert result[1]["result"]["success"] ==True, result
     result = result[1]["result"]
     assert result["observation"] is not None, result["observation"]
@@ -144,8 +136,8 @@ def test_multi_worker_client_communication_sync():
             index=2,
         )
 
-    time.sleep(5)
-    assert client.output_queue.qsize() == 15
+    for _ in range(15):
+        client.get_output(timeout=2)
     client.close()
 
 def test_multi_worker_multi_step():

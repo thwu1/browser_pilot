@@ -26,7 +26,9 @@ def test_worker_heartbeat_basic():
             ],
             index=0,
         )
-    time.sleep(2)
+    for _ in range(5):
+        client.get_output()
+    time.sleep(1.1)
     worker_status = client.get_worker_status_no_wait()
     assert worker_status[0]["num_finished_tasks"] == 5, worker_status
     assert worker_status[0]["num_contexts"] == 5, worker_status
@@ -65,7 +67,9 @@ def test_worker_heartbeat_multi_worker():
             index=1,
         )
     
-    time.sleep(2)
+    for _ in range(7):
+        client.get_output()
+    time.sleep(1.1)
     worker_status = client.get_worker_status_no_wait()
     assert worker_status[0]["num_finished_tasks"] == 3, worker_status
     assert worker_status[1]["num_finished_tasks"] == 4, worker_status
@@ -80,64 +84,64 @@ def test_heartbeat_pages():
 
     client = WorkerClient(input_path, output_path, num_workers)
 
-    task_id = f"task_{uuid.uuid4().hex[:8]}"
-    context_id = f"{uuid.uuid4().hex[:8]}"
-    client.send(
-        [
-            {
-                "command": "create_context",
-                "task_id": task_id,
-                "context_id": context_id,
-            }
-        ],
-        index=0,
-    )
-    time.sleep(2)
-    worker_status = client.get_worker_status_no_wait()
-    assert worker_status[0]["num_contexts"] == 1, worker_status
-    assert worker_status[0]["num_pages"] == 0, worker_status
-    client.get_output()
-    
-    client.send(
-        [
-            {
-                "command": "browser_navigate",
-                "task_id": task_id,
-                "context_id": context_id,
-                "params": {"url": "https://www.example.com", "timeout": 30000},
-            }
-        ],
-        index=0,
-    )
-    time.sleep(2)
-    index, result = client.get_output()
-    page_id = result["page_id"]
-    worker_status = client.get_worker_status_no_wait()
-    assert worker_status[0]["num_contexts"] == 1, worker_status
-    assert worker_status[0]["num_pages"] == 1, worker_status
-    assert worker_status[0]["num_finished_tasks"] == 2, worker_status
+    async def test():
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        context_id = f"{uuid.uuid4().hex[:8]}"
+        client.send(
+            [
+                {
+                    "command": "create_context",
+                    "task_id": task_id,
+                    "context_id": context_id,
+                }
+            ],
+            index=0,
+        )
+        result = await client.get_output_with_task_id(task_id, timeout=1000)
+        time.sleep(1.1)
+        worker_status = client.get_worker_status_no_wait()
+        assert worker_status[0]["num_contexts"] == 1, worker_status
+        assert worker_status[0]["num_pages"] == 0, worker_status
+        
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        client.send(
+            [
+                {
+                    "command": "browser_navigate",
+                    "task_id": task_id,
+                    "context_id": context_id,
+                    "params": {"url": "https://www.example.com", "timeout": 30000},
+                }
+            ],
+            index=0,
+        )
+        result = await client.get_output_with_task_id(task_id)
 
-    task_id = f"task_{uuid.uuid4().hex[:8]}"
-    client.send(
-        [
-            {
-                "command": "browser_close",
-                "task_id": task_id,
-                "context_id": context_id,
-                "params": {"page_id": page_id},
-            }
-        ],
-        index=0,
-    )
-    time.sleep(2)
-    worker_status = client.get_worker_status_no_wait()
-    print(worker_status)
-    assert worker_status[0]["num_contexts"] == 1, worker_status
-    assert worker_status[0]["num_pages"] == 0, worker_status
-    assert worker_status[0]["num_finished_tasks"] == 3, worker_status
+        page_id = result["page_id"]
+        time.sleep(1.1)
+        worker_status = client.get_worker_status_no_wait()
+        assert worker_status[0]["num_contexts"] == 1, worker_status
+        assert worker_status[0]["num_pages"] == 1, worker_status
+        assert worker_status[0]["num_finished_tasks"] == 2, worker_status
+
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        client.send(
+            [
+                {
+                    "command": "browser_close",
+                    "task_id": task_id,
+                    "context_id": context_id,
+                    "params": {"page_id": page_id},
+                }
+            ],
+            index=0,
+        )
+        result = await client.get_output_with_task_id(task_id)
+        time.sleep(1.1)
+        worker_status = client.get_worker_status_no_wait()
+        assert worker_status[0]["num_contexts"] == 1, worker_status
+        assert worker_status[0]["num_pages"] == 0, worker_status
+        assert worker_status[0]["num_finished_tasks"] == 3, worker_status
+
+    asyncio.run(test())
     client.close()
-
-if __name__ == "__main__":
-    # test_worker_heartbeat_basic()
-    # test_worker_heartbeat_multi_worker()
-    test_heartbeat_pages()
