@@ -274,7 +274,7 @@ class AsyncBrowserWorker:
 
         except Exception as e:
             # Log error and queue error result
-            logger.error(f"Error executing task {task.task_id}: {str(e)}")
+            logger.error(f"Error executing task {task}: {str(e)}")
             self.output_queue.put_nowait(
                 {
                     "task_id": task.task_id,
@@ -876,7 +876,7 @@ class AsyncBrowserWorker:
             if "Target closed" in str(e) or "Session closed" in str(e):
                 context_info.state = ContextState.FAILED
             raise
-        
+
     async def _close_page(self, page: Page):
         await page.close()
         self.num_pages -= 1

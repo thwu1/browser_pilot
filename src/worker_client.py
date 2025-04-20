@@ -106,8 +106,14 @@ class WorkerClient:
             return self.output_queue.get_nowait()
         return None
     
-    def get_output(self):
-        return self.output_queue.get()
+    def get_output(self, timeout: float = 20):
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if self.output_queue.qsize() > 0:
+                return self.output_queue.get()
+            time.sleep(0.1)
+        
+        raise TimeoutError("Timeout waiting for output")
 
 
     def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
