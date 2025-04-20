@@ -210,7 +210,7 @@ class AsyncBrowserWorker:
     async def process_task_queue_loop(self):
         """Process tasks from the queue in the background"""
         while self.running:
-            logger.info(
+            logger.debug(
                 f"Processing task queue loop, input queue size: {self.input_queue.qsize()}, output queue size: {self.output_queue.qsize()}"
             )
             try:
@@ -252,6 +252,7 @@ class AsyncBrowserWorker:
         """Execute a single task and put result in result queue"""
         try:
             logger.debug(f"Executing task {task.task_id}")
+            task.worker_start_process_timestamp = time.time()
             result = await self.execute_command(
                 task.context_id, task.page_id, task.command, task.params
             )
@@ -264,10 +265,16 @@ class AsyncBrowserWorker:
                     "page_id": result.get("page_id", None),
                     "result": result,
                     "success": True,
-                    "timestamp": finish_timestamp,
+                    "profile": {
+                        "engine_recv_timestamp": task.engine_recv_timestamp,
+                        "engine_send_timestamp": task.engine_send_timestamp,
+                        "worker_recv_timestamp": task.worker_recv_timestamp,
+                        "worker_start_process_timestamp": task.worker_start_process_timestamp,
+                        "worker_finish_timestamp": finish_timestamp,
+                    },
                 }
             )
-            self.last_activity_time = time.time()
+            self.last_activity_time = finish_timestamp
             self.num_finished_tasks += 1
             self.error_rate *= self.ema_factor
             self.avg_latency_ms = self.ema_factor * self.avg_latency_ms + (finish_timestamp - task.worker_recv_timestamp) * 1000* (1 - self.ema_factor)
@@ -280,7 +287,13 @@ class AsyncBrowserWorker:
                     "task_id": task.task_id,
                     "error": str(e),
                     "success": False,
-                    "timestamp": time.time(),
+                    "profile": {
+                        "engine_recv_timestamp": task.engine_recv_timestamp,
+                        "engine_send_timestamp": task.engine_send_timestamp,
+                        "worker_recv_timestamp": task.worker_recv_timestamp,
+                        "worker_start_process_timestamp": task.worker_start_process_timestamp,
+                        "worker_finish_timestamp": time.time(),
+                    },
                 }
             )
             self.num_error_tasks += 1
@@ -927,7 +940,7 @@ class AsyncBrowserWorker:
             else:
                 raise ValueError(f"Unknown observation type: {observation_type}")
 
-            logger.info(f"Got observation {observation_type} from context {context_id}")
+            logger.debug(f"Got observation {observation_type} from context {context_id}")
             return result
 
         except Exception as e:
@@ -1156,9 +1169,12 @@ class AsyncBrowserWorkerProc:
                 )
                 await asyncio.sleep(0.1)
 
+            send_time = time.time()
             outputs = []
             while self.worker.output_queue.qsize() > 0:
-                outputs.append(self.worker.output_queue.get_nowait())
+                output = self.worker.output_queue.get_nowait()
+                output["profile"]["worker_send_timestamp"] = send_time
+                outputs.append(output)
             assert len(outputs) > 0, "No outputs to send, this should not happen"
             logger.debug(f"Sending {len(outputs)} outputs to client")
             await self._send(outputs, MSG_TYPE_OUTPUT)

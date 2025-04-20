@@ -22,7 +22,7 @@ import threading
 from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, handlers=[logging.StreamHandler(), logging.FileHandler("worker_client.log")])
+logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(), logging.FileHandler("worker_client.log")])
 logger = logging.getLogger(__name__)
 
 
@@ -135,10 +135,9 @@ class WorkerClient:
     def _recv_thread(self):
         while self._recv_thread_running:
             idx, msg_type, msg = self._recv()
-            # assert False, {"idx": idx, "msg_type": msg_type, "msg": msg}
             if msg_type == MSG_TYPE_OUTPUT and msg:
                 for m in msg:
-                    logger.info(f"Received message from worker {idx}: {m}")
+                    logger.debug(f"Received message from worker {idx}: {m}")
                     assert isinstance(m, dict)
                     self.output_queue.put((idx, m))
             elif msg_type == MSG_TYPE_STATUS and msg:
