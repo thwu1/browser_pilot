@@ -25,6 +25,12 @@ from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
 logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(), logging.FileHandler("worker_client.log")])
 logger = logging.getLogger(__name__)
 
+def make_client(config: Dict[str, Any]):
+    try:
+        return WorkerClient(config["input_path"], config["output_path"], config["num_workers"])
+    except Exception as e:
+        logger.error(f"Error making client: {e}")
+        raise e
 
 class WorkerClient:
     def __init__(self, input_path: str, output_path: str, num_workers: int):
@@ -115,6 +121,8 @@ class WorkerClient:
         
         raise TimeoutError("Timeout waiting for output")
 
+    def get_output_queue_len(self):
+        return self.output_queue.qsize()
 
     def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
         assert isinstance(msg, list)

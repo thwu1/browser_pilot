@@ -77,6 +77,7 @@ class RoundRobinScheduler:
             else:
                 worker_id = last_assigned_worker[i]
             schedule_output.task_assignments[task_id] = worker_id
+
         return all_tasks, schedule_output
     
 # Test the round-robin scheduler

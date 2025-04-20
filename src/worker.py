@@ -15,7 +15,7 @@ import time
 import uuid
 import base64
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 
@@ -88,6 +88,9 @@ class BrowserWorkerTask:
             self.params = {}
         if self.worker_recv_timestamp is None:
             self.worker_recv_timestamp = time.time()
+
+    def to_dict(self):
+        return self.__dict__
 
 
 @dataclass

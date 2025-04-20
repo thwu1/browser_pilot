@@ -66,6 +66,7 @@ class BrowserEngine:
         # self._check_task_validity(task)
 
         self.waiting_queue.put(task)
+        print(f"added task {task.task_id} to waiting queue")
 
         # check if context_id in context_tracker (key is context_id, value is the worker_id)
         if not task.context_id:
@@ -92,22 +93,21 @@ class BrowserEngine:
         self.worker_client.close()
 
     def engine_core_loop(self):
+        """Main engine loop that processes tasks and manages workers"""
         self._running = True
-        signal.signal(signal.SIGINT, self._shutdown)
-        signal.signal(signal.SIGTERM, self._shutdown)
 
         try:
-
             while self._running:
                 tasks = []
                 prev_workers = []
                 while not self.waiting_queue.empty() and len(tasks) < self.batch_size:
                     task = self.waiting_queue.get()
                     tasks.append(task)
-                    prev_workers.append(self.context_id_to_worker_id_map[task.context_id])
+                    prev_workers.append(self.context_tracker[task.context_id])
 
                 if not tasks:
                     self._process_output_and_update_tracker()
+                    time.sleep(0.1)  # Small sleep to prevent busy waiting
                     continue
 
                 worker_status = self.worker_client.get_worker_status_no_wait()
@@ -122,9 +122,10 @@ class BrowserEngine:
 
         except Exception as e:
             logger.error(f"Exception in engine core loop: {e}")
+            raise
         finally:
             self._shutdown()
-    
+
     def _update_task_tracker_with_scheduler_output(self, tasks, scheduler_output: SchedulerOutput):
 
         for task in tasks:
@@ -141,7 +142,11 @@ class BrowserEngine:
         for task in tasks:
             worker_id = scheduler_output.task_assignments[task.task_id]
             task.engine_send_timestamp = time.time()
-            self.worker_client.send_task(task, worker_id)
+            print(f"sending task {task.task_id} to worker {worker_id}")
+            # Convert BrowserWorkerTask to dict
+            task_dict = task.to_dict()
+            self.worker_client.send([task_dict], worker_id)
+            print(f"sent task {task.task_id} to worker {worker_id}")
 
         return
 
@@ -152,13 +157,13 @@ class BrowserEngine:
         
         for _ in range(output_queue_len):
             idx, msg = self.worker_client.get_output_nowait()
+            print(f"received task {msg['task_id']} from worker {idx}")
             assert "task_id" in msg
             task_id = msg["task_id"]
             assert task_id not in self.output_dict
             self.output_dict[task_id] = msg
-            self.context_tracker[msg["context_id"]] = idx
             self.task_tracker[task_id]["status"] = "finished"
-
+            print(f"updated task {task_id} status to finished")
         return
 
     def engine_core_loop_old(self):
@@ -179,10 +184,10 @@ class BrowserEngine:
 
                 worker_status = self.worker_client.get_worker_status()
 
-                scheduler_output = self.scheduler.schedule(tasks, self.task_tracker, worker_status)
-                self._execute_scheduler_output(scheduler_output)
+                scheduled_tasks, scheduler_output = self.scheduler.schedule(tasks, self.task_tracker, worker_status)
+                self._execute_scheduler_output(scheduled_tasks, scheduler_output)
 
-                self._update_task_tracker_with_scheduler_output(scheduler_output)
+                self._update_task_tracker_with_scheduler_output(scheduled_tasks, scheduler_output)
 
                 self._process_output_and_update_tracker()
 
@@ -193,10 +198,43 @@ class BrowserEngine:
 
 
 if __name__ == "__main__":
+    import threading
     config = {
         "worker_client_config": {"input_path": "ipc://input_sync", "output_path": "ipc://output_sync", "num_workers": 3},
         "scheduler_config": {"type": SchedulerType.ROUND_ROBIN, "max_batch_size": 5, "n_workers": 3}
     }
     scheduler = make_scheduler(config["scheduler_config"])
     engine = BrowserEngine(BrowserEngineConfig(**config))
-    engine.engine_core_loop()
+
+    # Set up signal handlers in main thread
+    def signal_handler(signum, frame):
+        engine._shutdown()
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    engine_thread = threading.Thread(target=engine.engine_core_loop)
+    engine_thread.start()
+
+    engine.add_task(BrowserWorkerTask(task_id="task_1", command="create_context"))
+    engine.add_task(BrowserWorkerTask(task_id="task_2", command="create_context"))
+    engine.add_task(BrowserWorkerTask(task_id="task_3", command="create_context"))
+    engine.add_task(BrowserWorkerTask(task_id="task_4", command="create_context"))
+    engine.add_task(BrowserWorkerTask(task_id="task_5", command="create_context"))
+
+    print(engine.waiting_queue.qsize())
+    print(engine.task_tracker)
+    print(engine.context_tracker)
+    print(engine.output_dict)
+
+    # wait for engine to finish
+    time.sleep(60)
+
+    # print engine status
+    print(engine.waiting_queue.qsize())
+    print(engine.task_tracker)
+    print(engine.context_tracker)
+    print(engine.output_dict)
+
+    # stop engine
+    engine._shutdown()
