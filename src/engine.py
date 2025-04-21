@@ -172,7 +172,7 @@ class BrowserEngine:
         for _ in range(output_queue_len):
             idx, msg = self.worker_client.get_output_nowait()
             logger.info(f"received task {msg['task_id']} from worker {idx}")
-            if not msg["success"]:
+            if not msg["result"]["success"]:
                 logger.warning(f"task {msg['task_id']} failed")
             assert "task_id" in msg
             task_id = msg["task_id"]
