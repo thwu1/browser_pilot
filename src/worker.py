@@ -1080,6 +1080,7 @@ class AsyncBrowserWorkerProc:
 
     async def _send(self, outputs: List[Dict[str, Any]], msg_type: bytes):
         assert isinstance(outputs, list)
+        logger.debug(f"Sending {len(outputs)} outputs to client")
         self.output_socket.send_multipart(
             [self.identity, msg_type, self.encoder(outputs)]
         )
@@ -1109,20 +1110,17 @@ class AsyncBrowserWorkerProc:
 
     async def process_outgoing_socket_loop(self):
         while self.worker.running:
-            while self.worker.output_queue.qsize() == 0:
-                logger.debug(
-                    f"process_outgoing_socket_loop running, output queue size is 0"
-                )
-                await asyncio.sleep(0.1)
-
+            output = await self.worker.output_queue.get()
             send_time = time.time()
-            outputs = []
-            while self.worker.output_queue.qsize() > 0:
+            output["profile"]["worker_send_timestamp"] = send_time
+
+            outputs = [output]
+            while not self.worker.output_queue.empty():
                 output = self.worker.output_queue.get_nowait()
                 output["profile"]["worker_send_timestamp"] = send_time
                 outputs.append(output)
+
             assert len(outputs) > 0, "No outputs to send, this should not happen"
-            logger.debug(f"Sending {len(outputs)} outputs to client")
             await self._send(outputs, MSG_TYPE_OUTPUT)
 
     async def send_heartbeat_loop(self):
