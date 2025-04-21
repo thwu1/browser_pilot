@@ -2,6 +2,7 @@ import time
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
+
 class BrowserWorkerTask(BaseModel):
     """
     Task for browser worker execution
@@ -26,13 +27,11 @@ class BrowserWorkerTask(BaseModel):
         return self.__dict__
 
 
-
 if __name__ == "__main__":
 
     task = BrowserWorkerTask(
         task_id="task_1",
         command="create_context",
-        params={"url": "https://www.example.com"}
+        params={"url": "https://www.example.com"},
     )
     print(task)
-    

@@ -22,15 +22,22 @@ import threading
 from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(), logging.FileHandler("worker_client.log")])
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[logging.StreamHandler(), logging.FileHandler("worker_client.log")],
+)
 logger = logging.getLogger(__name__)
+
 
 def make_client(config: Dict[str, Any]):
     try:
-        return WorkerClient(config["input_path"], config["output_path"], config["num_workers"])
+        return WorkerClient(
+            config["input_path"], config["output_path"], config["num_workers"]
+        )
     except Exception as e:
         logger.error(f"Error making client: {e}")
         raise e
+
 
 class WorkerClient:
     def __init__(self, input_path: str, output_path: str, num_workers: int):
@@ -102,23 +109,23 @@ class WorkerClient:
                 assert "task_id" in msg
                 self.finished_tasks[msg["task_id"]] = msg
             await asyncio.sleep(0.1)
-        
+
         if task_id not in self.finished_tasks:
             return None
         return self.finished_tasks[task_id]
-    
+
     def get_output_nowait(self):
         if self.output_queue.qsize() > 0:
             return self.output_queue.get_nowait()
         return None
-    
+
     def get_output(self, timeout: float = 20):
         start_time = time.time()
         while time.time() - start_time < timeout:
             if self.output_queue.qsize() > 0:
                 return self.output_queue.get()
             time.sleep(0.1)
-        
+
         raise TimeoutError("Timeout waiting for output")
 
     def get_output_queue_len(self):
@@ -153,7 +160,7 @@ class WorkerClient:
                 assert isinstance(msg[0], dict)
                 logger.debug(f"Received status from worker {idx}: {msg[0]}")
                 self.worker_status[idx] = msg[0]
-    
+
     def get_worker_status_no_wait(self):
         return self.worker_status.copy()
 

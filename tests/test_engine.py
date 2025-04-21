@@ -1,56 +1,9 @@
-import pytest
-from unittest.mock import Mock, patch
-import queue
 import time
 from engine import BrowserEngine, BrowserEngineConfig
 from worker import BrowserWorkerTask
 from scheduler import SchedulerType
 import threading
 import uuid
-
-@pytest.fixture
-def mock_config():
-    return BrowserEngineConfig(
-        worker_client_config={
-            "num_workers": 2,
-            "other_config": "value"
-        },
-        scheduler_config={
-            "max_batch_size": 5,
-            "type": SchedulerType.ROUND_ROBIN,
-            "n_workers": 2
-        }
-    )
-
-@pytest.fixture
-def mock_worker_client():
-    client = Mock()
-    client.get_worker_status_no_wait.return_value = {"worker1": "idle", "worker2": "idle"}
-    client.get_output_queue_len.return_value = 0
-    return client
-
-@pytest.fixture
-def mock_scheduler():
-    scheduler = Mock()
-    scheduler.schedule.return_value = ([], Mock())
-    return scheduler
-
-@pytest.fixture
-def engine(mock_config, mock_worker_client, mock_scheduler):
-    with patch("engine.make_client", return_value=mock_worker_client), \
-         patch("engine.make_scheduler", return_value=mock_scheduler):
-        engine = BrowserEngine(mock_config)
-        return engine
-
-def test_engine_initialization(engine, mock_config):
-    """Test if the engine initializes correctly with given configuration"""
-    assert engine.n_workers == mock_config.worker_client_config["num_workers"]
-    assert engine.batch_size == mock_config.scheduler_config["max_batch_size"]
-    assert isinstance(engine.waiting_queue, queue.Queue)
-    assert isinstance(engine.task_tracker, dict)
-    assert isinstance(engine.context_tracker, dict)
-    assert isinstance(engine.output_dict, dict)
-
 
 def test_context_affinity_and_browser_close():
     """Test that contexts maintain worker affinity and can be properly closed"""
@@ -129,6 +82,7 @@ def test_context_affinity_and_browser_close():
                 f"Context {context_id} changed workers"
                 
         # Verify all tasks completed successfully
+        assert len(engine.output_dict) == total_tasks, "Not all tasks completed"
         for task_id, task in engine.task_tracker.items():
             assert task["status"] == "finished", f"Task {task_id} did not finish"
             

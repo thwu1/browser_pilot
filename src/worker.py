@@ -9,13 +9,9 @@ reliability features for browser automation.
 import asyncio
 import logging
 import os
-import signal
-import sys
 import time
 import uuid
-import base64
-import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 
@@ -1094,10 +1090,9 @@ class AsyncBrowserWorkerProc:
                 for task in tasks:
                     task = BrowserWorkerTask.model_validate(task)
                     task.worker_recv_timestamp = recv_time
-                    logger.info(f"Received task: {task}")
                     self.worker.input_queue.put_nowait(task)
                 logger.debug(
-                    f"Received {len(tasks)} tasks from client, first task: {tasks[0]}, input queue size: {self.worker.input_queue.qsize()}, output queue size: {self.worker.output_queue.qsize()}"
+                    f"Received {len(tasks)} tasks from client, input queue size: {self.worker.input_queue.qsize()}, output queue size: {self.worker.output_queue.qsize()}"
                 )
             except zmq.Again:
                 await asyncio.sleep(0.1)

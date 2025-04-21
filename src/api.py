@@ -22,8 +22,7 @@ from monitor import setup_worker_monitoring
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -42,6 +41,7 @@ sessions: Dict[str, Dict[str, Any]] = {}
 
 class SessionRequest(BaseModel):
     """Request model for creating a session"""
+
     user_agent: Optional[str] = None
     viewport: Optional[Dict[str, int]] = None
     persistent: bool = False
@@ -49,12 +49,14 @@ class SessionRequest(BaseModel):
 
 class CommandRequest(BaseModel):
     """Request model for executing a command"""
+
     command: str
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ObservationRequest(BaseModel):
     """Request model for getting an observation"""
+
     observation_type: str
     params: Dict[str, Any] = Field(default_factory=dict)
 
@@ -65,10 +67,10 @@ async def startup_event():
     global worker
     worker = AsyncBrowserWorker()
     await worker.start()
-    
+
     # Set up resource monitoring
     monitor = await setup_worker_monitoring(worker, app, interval=60)
-    
+
     logger.info("API server started with browser worker and monitoring")
 
 
@@ -93,7 +95,7 @@ async def get_status():
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     worker_status = await worker.get_status()
     return {
         "worker": worker_status,
@@ -102,8 +104,9 @@ async def get_status():
                 "context_id": info["context_id"],
                 "created_at": info["created_at"],
                 "last_activity": info["last_activity"],
-            } for session_id, info in sessions.items()
-        }
+            }
+            for session_id, info in sessions.items()
+        },
     }
 
 
@@ -113,18 +116,18 @@ async def create_session(request: SessionRequest):
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     # Prepare context options
     context_options = {}
     if request.user_agent:
         context_options["user_agent"] = request.user_agent
     if request.viewport:
         context_options["viewport"] = request.viewport
-    
+
     try:
         # Create browser context
         context_id = await worker.create_context(context_options=context_options)
-        
+
         # Create session
         session_id = str(uuid.uuid4())
         sessions[session_id] = {
@@ -133,11 +136,11 @@ async def create_session(request: SessionRequest):
             "last_activity": asyncio.get_event_loop().time(),
             "persistent": request.persistent,
         }
-        
+
         return {
             "session_id": session_id,
             "context_id": context_id,
-            "message": "Session created successfully"
+            "message": "Session created successfully",
         }
     except Exception as e:
         logger.error(f"Error creating session: {e}")
@@ -150,20 +153,20 @@ async def delete_session(session_id: str):
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     try:
         # Get context ID
         context_id = sessions[session_id]["context_id"]
-        
+
         # Terminate browser context
         await worker.terminate_context(context_id)
-        
+
         # Remove session
         del sessions[session_id]
-        
+
         return {"message": f"Session {session_id} deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting session {session_id}: {e}")
@@ -176,48 +179,51 @@ async def execute_command(session_id: str, request: CommandRequest):
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     # Update last activity time
     sessions[session_id]["last_activity"] = asyncio.get_event_loop().time()
-    
+
     try:
         # Get context ID
         context_id = sessions[session_id]["context_id"]
-        
+
         # Special handling for binary response commands
         if request.command == "browser_screenshot":
-            result = await worker.execute_command(context_id, request.command, request.params)
-            
+            result = await worker.execute_command(
+                context_id, request.command, request.params
+            )
+
             # Check if the result contains binary data
             if "screenshot" in result and isinstance(result["screenshot"], bytes):
                 # Return as a binary response instead of JSON
-                return Response(
-                    content=result["screenshot"],
-                    media_type="image/png"
-                )
-            
+                return Response(content=result["screenshot"], media_type="image/png")
+
             return result
-        
+
         elif request.command == "browser_pdf_save":
-            result = await worker.execute_command(context_id, request.command, request.params)
-            
+            result = await worker.execute_command(
+                context_id, request.command, request.params
+            )
+
             # Check if the result contains PDF data
             if "pdf" in result and isinstance(result["pdf"], bytes):
                 # Return as a binary response
                 return Response(
                     content=result["pdf"],
                     media_type="application/pdf",
-                    headers={"Content-Disposition": "attachment; filename=page.pdf"}
+                    headers={"Content-Disposition": "attachment; filename=page.pdf"},
                 )
-            
+
             return result
-        
+
         # Execute command for other commands
-        result = await worker.execute_command(context_id, request.command, request.params)
-        
+        result = await worker.execute_command(
+            context_id, request.command, request.params
+        )
+
         return result
     except Exception as e:
         logger.error(f"Error executing command in session {session_id}: {e}")
@@ -230,20 +236,22 @@ async def get_observation(session_id: str, request: ObservationRequest):
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     # Update last activity time
     sessions[session_id]["last_activity"] = asyncio.get_event_loop().time()
-    
+
     try:
         # Get context ID
         context_id = sessions[session_id]["context_id"]
-        
+
         # Get observation
-        result = await worker.get_observation(context_id, request.observation_type, request.params)
-        
+        result = await worker.get_observation(
+            context_id, request.observation_type, request.params
+        )
+
         return result
     except Exception as e:
         logger.error(f"Error getting observation from session {session_id}: {e}")
@@ -256,20 +264,20 @@ async def hibernate_session(session_id: str, background_tasks: BackgroundTasks):
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     try:
         # Get context ID
         context_id = sessions[session_id]["context_id"]
-        
+
         # Hibernate context
         hibernation_data = await worker.hibernate_context(context_id)
-        
+
         return {
             "message": f"Session {session_id} hibernated successfully",
-            "hibernation_data_size": len(json.dumps(hibernation_data))
+            "hibernation_data_size": len(json.dumps(hibernation_data)),
         }
     except Exception as e:
         logger.error(f"Error hibernating session {session_id}: {e}")
@@ -282,20 +290,20 @@ async def reactivate_session(session_id: str):
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     # Update last activity time
     sessions[session_id]["last_activity"] = asyncio.get_event_loop().time()
-    
+
     try:
         # Get context ID
         context_id = sessions[session_id]["context_id"]
-        
+
         # Reactivate context
         success = await worker.reactivate_context(context_id)
-        
+
         if success:
             return {"message": f"Session {session_id} reactivated successfully"}
         else:
@@ -311,20 +319,20 @@ async def get_session(session_id: str):
     global worker
     if not worker:
         raise HTTPException(status_code=503, detail="Worker not initialized")
-    
+
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     try:
         # Get context ID
         context_id = sessions[session_id]["context_id"]
-        
+
         # Get worker status
         worker_status = await worker.get_status()
-        
+
         # Get context status
         context_status = worker_status["contexts"].get(context_id, {"state": "unknown"})
-        
+
         return {
             "session_id": session_id,
             "context_id": context_id,
@@ -340,4 +348,5 @@ async def get_session(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
