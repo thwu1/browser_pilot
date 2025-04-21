@@ -21,10 +21,10 @@ import queue
 import threading
 from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    handlers=[logging.StreamHandler(), logging.FileHandler("worker_client.log")],
+    format="%(asctime)s - %(processName)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
@@ -165,10 +165,54 @@ class WorkerClient:
         return self.worker_status.copy()
 
     def close(self):
-        for worker_process in self.worker_processes:
-            worker_process.terminate()
-        self._recv_thread_running = False
-        self.input_socket.close()
-        self.output_socket.close()
-        self.zmq_context.term()
-        self.recv_thread.join()
+        logger.info("Received close signal, closing worker client")
+        try:
+            # Send shutdown signal to all workers
+            logger.info("Sending shutdown signal to all workers")
+            for worker_idx in range(self.num_workers):
+                try:
+                    self._send(
+                        [
+                            {
+                                "command": "shutdown",
+                                "task_id": f"shutdown_{worker_idx}",
+                                "context_id": None,
+                                "page_id": None,
+                            }
+                        ],
+                        worker_idx,
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending shutdown to worker {worker_idx}: {e}")
+
+            # Give workers a moment to process shutdown
+            time.sleep(0.5)
+
+            # Stop the receive thread
+            self._recv_thread_running = False
+
+            # Terminate and wait for worker processes
+            logger.info("Terminating worker processes")
+            for worker_process in self.worker_processes:
+                worker_process.terminate()
+                worker_process.join(timeout=1.0)  # Wait up to 1 second for each process
+                if worker_process.is_alive():
+                    logger.warning(
+                        f"Worker process {worker_process.pid} still alive, killing..."
+                    )
+                    worker_process.kill()  # Force kill if still alive
+                    worker_process.join(timeout=0.5)
+
+            # Close sockets and terminate context
+            logger.info("Closing ZMQ sockets")
+            self.input_socket.close()
+            self.output_socket.close()
+            self.zmq_context.term()
+
+            # Wait for receive thread
+            logger.info("Waiting for receive thread")
+            self.recv_thread.join(timeout=1.0)
+
+            logger.info("Worker client closed successfully")
+        except Exception as e:
+            logger.error(f"Error during worker client shutdown: {e}")

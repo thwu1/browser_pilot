@@ -177,7 +177,7 @@ class AsyncBrowserWorker:
     async def _execute_task(self, task: BrowserWorkerTask):
         """Execute a single task and put result in result queue"""
         try:
-            logger.debug(f"Executing task {task.task_id}")
+            logger.info(f"Executing task {task.to_dict()}")
             task.worker_start_process_timestamp = time.time()
             result = await self.execute_command(
                 task.context_id, task.page_id, task.command, task.params
@@ -373,6 +373,10 @@ class AsyncBrowserWorker:
             if context_id in self.contexts:
                 del self.contexts[context_id]
             raise
+
+    def shutdown(self):
+        logger.info(f"Shutting down worker {self.index}")
+        self.running = False
 
     # async def hibernate_context(self, context_id: str) -> Dict[str, Any]:
     #     """
@@ -1204,4 +1208,6 @@ class AsyncBrowserWorkerProc:
             raise
 
     def stop(self):
+        logger.info(f"Stopping worker {self.worker.index}")
         self.worker.running = False
+        self.worker.shutdown()
