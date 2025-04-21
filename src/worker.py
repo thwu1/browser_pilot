@@ -25,7 +25,8 @@ import traceback
 from utils import make_zmq_socket
 from utils import JsonEncoder, JsonDecoder
 from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
-import psutil
+from type.worker_type import WorkerStatus
+from type.task_type import BrowserWorkerTask
 
 # Configure logging
 logging.basicConfig(
@@ -58,42 +59,6 @@ class ContextState(Enum):
 
 
 @dataclass
-class BrowserWorkerTask:
-    """
-    Task for browser worker execution
-    task_id and command are required fields
-    all other fields are optional or will be set by the engine or worker
-    """
-
-    # task_id: str = ""
-    task_id: str = ""
-    context_id: Optional[str] = None
-    page_id: Optional[str] = None
-    command: str = ""
-    params: Optional[Dict[str, Any]] = None
-
-    engine_recv_timestamp: Optional[float] = None
-    engine_send_timestamp: Optional[float] = None
-    worker_recv_timestamp: Optional[float] = None
-    worker_start_process_timestamp: Optional[float] = None
-    worker_finish_process_timestamp: Optional[float] = None
-    worker_send_timestamp: Optional[float] = None
-
-    def __post_init__(self):
-        assert self.task_id != "", "task_id must be specified"
-        assert self.command != "", "command must be specified"
-        # assert self.engine_recv_timestamp != 0, "engine_recv_timestamp must be specified"
-        # assert self.engine_send_timestamp != 0, "engine_send_timestamp must be specified"
-        if self.params is None:
-            self.params = {}
-        if self.worker_recv_timestamp is None:
-            self.worker_recv_timestamp = time.time()
-
-    def to_dict(self):
-        return self.__dict__
-
-
-@dataclass
 class ContextInfo:
     """Information about a browser context"""
 
@@ -112,31 +77,6 @@ class ContextInfo:
             self.creation_time = time.time()
         self.last_activity_time = time.time()
 
-@dataclass
-class WorkerStatus:
-    """Status information for a browser worker
-
-    Contains metrics and state information about the worker, including task counts,
-    resource usage, and performance metrics. Use EMA continuous metrics.
-    """
-    index: int                # Worker index/ID
-    running: bool             # Whether the worker is running
-    num_contexts: int         # Number of browser contexts
-    num_pages: int            # Total number of pages across all contexts
-    error_rate: float         # Rate of task errors
-    last_activity: float      # Timestamp of last activity
-    last_heartbeat: float     # Timestamp of last heartbeat
-    num_running_tasks: int    # Number of tasks currently being executed
-    num_waiting_tasks: int    # Number of tasks waiting in the queue
-    num_finished_tasks: int   # Total number of tasks completed
-    avg_latency_ms: float     # Average task execution latency in milliseconds
-    throughput_per_sec: float # Tasks completed per second
-    cpu_usage_percent: Optional[float] = None  # CPU usage percentage
-    memory_usage_mb: Optional[float] = None    # Memory usage in MB
-
-    def to_dict(self):
-        """Convert the status to a dictionary"""
-        return self.__dict__
 
 class AsyncBrowserWorker:
     """
@@ -168,6 +108,7 @@ class AsyncBrowserWorker:
         self.avg_latency_ms = 0
         self.error_rate = 0
         self.last_activity_time = time.time()
+        # self._task_sema = asyncio.Semaphore(20)
 
         logger.info(f"Initializing BrowserWorker with ID: {self.index}")
 
@@ -213,36 +154,18 @@ class AsyncBrowserWorker:
     async def process_task_queue_loop(self):
         """Process tasks from the queue in the background"""
         while self.running:
-            logger.debug(
-                f"Processing task queue loop, input queue size: {self.input_queue.qsize()}, output queue size: {self.output_queue.qsize()}"
-            )
             try:
                 # Wait for tasks when the queue is empty
                 while self.input_queue.qsize() == 0:
-                    logger.debug(
-                        f"Waiting for tasks, input queue size is 0, inside blocking get"
-                    )
                     task = await self.input_queue.get()
-                    logger.debug(
-                        f"Received task {task.task_id}, step out of blocking get"
-                    )
                     self.event_loop.create_task(self._execute_task(task))
                     self.num_running_tasks += 1
-                    logger.debug(
-                        f"Start executing task {task.task_id}, input queue size: {self.input_queue.qsize()}"
-                    )
 
                 # Process all available tasks without blocking
                 while self.input_queue.qsize() > 0:
-                    logger.debug(
-                        f"Processing available tasks, input queue size: {self.input_queue.qsize()}"
-                    )
                     task = self.input_queue.get_nowait()
                     self.event_loop.create_task(self._execute_task(task))
                     self.num_running_tasks += 1
-                    logger.debug(
-                        f"Start executing task {task.task_id}, input queue size: {self.input_queue.qsize()}"
-                    )
 
             except asyncio.CancelledError:
                 logger.info("Task processor cancelled")
@@ -250,6 +173,10 @@ class AsyncBrowserWorker:
             except Exception as e:
                 logger.error(f"Error in task processor: {str(e)}")
                 await asyncio.sleep(0.1)  # Brief pause to avoid CPU spinning
+
+    # async def _execute_task_with_sema(self, task: BrowserWorkerTask):
+    #     async with self._task_sema:
+    #         await self._execute_task(task)
 
     async def _execute_task(self, task: BrowserWorkerTask):
         """Execute a single task and put result in result queue"""
@@ -280,7 +207,9 @@ class AsyncBrowserWorker:
             self.last_activity_time = finish_timestamp
             self.num_finished_tasks += 1
             self.error_rate *= self.ema_factor
-            self.avg_latency_ms = self.ema_factor * self.avg_latency_ms + (finish_timestamp - task.worker_recv_timestamp) * 1000* (1 - self.ema_factor)
+            self.avg_latency_ms = self.ema_factor * self.avg_latency_ms + (
+                finish_timestamp - task.worker_recv_timestamp
+            ) * 1000 * (1 - self.ema_factor)
 
         except Exception as e:
             # Log error and queue error result
@@ -943,7 +872,9 @@ class AsyncBrowserWorker:
             else:
                 raise ValueError(f"Unknown observation type: {observation_type}")
 
-            logger.debug(f"Got observation {observation_type} from context {context_id}")
+            logger.debug(
+                f"Got observation {observation_type} from context {context_id}"
+            )
             return result
 
         except Exception as e:
@@ -963,7 +894,9 @@ class AsyncBrowserWorker:
         """
         # Calculate the number of pages across all contexts
         try:
-            num_pages = sum(len(context_info.pages) for context_info in self.contexts.values())
+            num_pages = sum(
+                len(context_info.pages) for context_info in self.contexts.values()
+            )
             assert num_pages == self.num_pages
         except Exception:
             num_pages = 0
@@ -986,7 +919,6 @@ class AsyncBrowserWorker:
             memory_usage_mb=0,
             last_heartbeat=0,
         )
-
 
     async def _get_or_create_page(self, context_id: str, page_id: str = None) -> Page:
         """
@@ -1050,7 +982,13 @@ class AsyncBrowserWorkerProc:
     receiving tasks from the engine, and sending results back.
     """
 
-    def __init__(self, index: int, input_path: str, output_path: str, report_cpu_and_memory: bool = False):
+    def __init__(
+        self,
+        index: int,
+        input_path: str,
+        output_path: str,
+        report_cpu_and_memory: bool = False,
+    ):
         self.index = index
         self.identity = str(index).encode()
         self.input_path = input_path
@@ -1142,7 +1080,9 @@ class AsyncBrowserWorkerProc:
 
     async def _send(self, outputs: List[Dict[str, Any]], msg_type: bytes):
         assert isinstance(outputs, list)
-        self.output_socket.send_multipart([self.identity, msg_type, self.encoder(outputs)])
+        self.output_socket.send_multipart(
+            [self.identity, msg_type, self.encoder(outputs)]
+        )
 
     async def process_incoming_socket_loop(self):
         while self.worker.running:
@@ -1150,8 +1090,12 @@ class AsyncBrowserWorkerProc:
                 tasks = await self._recv()
                 if not tasks:
                     continue
+                recv_time = time.time()
                 for task in tasks:
-                    self.worker.input_queue.put_nowait(BrowserWorkerTask(**task))
+                    task = BrowserWorkerTask.model_validate(task)
+                    task.worker_recv_timestamp = recv_time
+                    logger.info(f"Received task: {task}")
+                    self.worker.input_queue.put_nowait(task)
                 logger.debug(
                     f"Received {len(tasks)} tasks from client, first task: {tasks[0]}, input queue size: {self.worker.input_queue.qsize()}, output queue size: {self.worker.output_queue.qsize()}"
                 )
@@ -1203,6 +1147,7 @@ class AsyncBrowserWorkerProc:
 
         if self.report_cpu_and_memory:
             import psutil
+
             process = psutil.Process()
             process.cpu_percent()
 
@@ -1225,14 +1170,21 @@ class AsyncBrowserWorkerProc:
                 if self.report_cpu_and_memory:
                     if heartbeat_count % resource_check_interval == 0:
                         memory_info = process.memory_info()
-                        cached_memory_mb = memory_info.rss / (1024 * 1024)  # Convert bytes to MB
+                        cached_memory_mb = memory_info.rss / (
+                            1024 * 1024
+                        )  # Convert bytes to MB
                         cached_cpu_percent = process.cpu_percent(interval=None)
 
                     status.memory_usage_mb = cached_memory_mb
                     status.cpu_usage_percent = cached_cpu_percent
 
-                new_tasks_completed = status.num_finished_tasks - prev_num_finished_tasks
-                status.throughput_per_sec = prev_throughput_per_sec * self.worker.ema_factor + new_tasks_completed * (1 - self.worker.ema_factor)
+                new_tasks_completed = (
+                    status.num_finished_tasks - prev_num_finished_tasks
+                )
+                status.throughput_per_sec = (
+                    prev_throughput_per_sec * self.worker.ema_factor
+                    + new_tasks_completed * (1 - self.worker.ema_factor)
+                )
 
                 # Update tracking variables for next iteration
                 prev_num_finished_tasks = status.num_finished_tasks
@@ -1240,12 +1192,14 @@ class AsyncBrowserWorkerProc:
                 prev_time = current_time
 
                 await self._send([status.to_dict()], MSG_TYPE_STATUS)
-                logger.debug(f"Heartbeat worker {self.worker.index}: " +
-                            f"CPU: {status.cpu_usage_percent:.1f}%, " +
-                            f"Memory: {status.memory_usage_mb:.1f}MB, " +
-                            f"Tasks: {status.num_finished_tasks}, " +
-                            f"Throughput: {status.throughput_per_sec:.2f}/s, " + 
-                            f"Latency: {status.avg_latency_ms:.2f}ms")
+                logger.debug(
+                    f"Heartbeat worker {self.worker.index}: "
+                    + f"CPU: {status.cpu_usage_percent:.1f}%, "
+                    + f"Memory: {status.memory_usage_mb:.1f}MB, "
+                    + f"Tasks: {status.num_finished_tasks}, "
+                    + f"Throughput: {status.throughput_per_sec:.2f}/s, "
+                    + f"Latency: {status.avg_latency_ms:.2f}ms"
+                )
 
         except asyncio.CancelledError:
             logger.info(f"Heartbeat loop for worker {self.worker.index} cancelled")

@@ -1,6 +1,5 @@
-from scheduler import make_scheduler, SchedulerOutput, SchedulerType
+from scheduler import make_scheduler
 import asyncio
-import json
 import logging
 import multiprocessing as mp
 from typing import Dict, List, Set, Any, Optional, Tuple
@@ -13,6 +12,7 @@ import time
 from collections import defaultdict
 import uuid
 import logging
+from type.scheduler_type import SchedulerType, SchedulerOutput
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -213,6 +213,62 @@ class BrowserEngine:
             self._shutdown()
 
 
+class AsyncBrowserEngine(BrowserEngine):
+    def __init__(self, config: BrowserEngineConfig):
+        super().__init__(config)
+        self.waiting_queue = asyncio.Queue()
+    
+    async def add_task(self, task: BrowserWorkerTask):
+        self._check_task_validity(task)
+        await self.waiting_queue.put(task)
+
+    async def add_batch_tasks(self, tasks: List[BrowserWorkerTask]):
+        for task in tasks:
+            await self.add_task(task)
+    
+    async def engine_core_loop(self):
+        self._running = True
+        signal.signal(signal.SIGINT, self._shutdown)
+        signal.signal(signal.SIGTERM, self._shutdown)
+
+        try:
+            while self._running:
+                tasks = []
+                while not self.waiting_queue.empty():
+                    tasks.append(self.waiting_queue.get())
+                
+                if not tasks:
+                    self._process_output_and_update_tracker()
+                    continue
+
+                worker_status = self.worker_client.get_worker_status()
+
+                scheduler_output = self.scheduler.schedule(tasks, self.task_tracker, worker_status)
+                self._execute_scheduler_output(scheduler_output)
+
+                self._update_task_tracker_with_scheduler_output(scheduler_output)
+
+                self._process_output_and_update_tracker()
+                
+        except Exception as e:
+            logger.error(f"Exception in engine core loop: {e}")
+        finally:
+            self._shutdown()
+    
+    async def _execute_scheduler_output(self, scheduler_output: SchedulerOutput):
+        """
+        Allocate tasks to workers.
+        """
+        tasks = self.waiting_queue.get()
+        for task in tasks:
+            worker_id = scheduler_output.task_assignments[task.task_id]
+            task.engine_send_timestamp = time.time()
+            self.worker_client.send_task(task, worker_id)
+
+        return
+    
+
+
 if __name__ == "__main__":
     import threading
     config = {
@@ -239,16 +295,11 @@ if __name__ == "__main__":
         print(f"context_id: {context_id}")
         engine.add_task(BrowserWorkerTask(task_id=task_id, command="create_context", context_id=context_id))
 
-    # print(engine.waiting_queue.qsize())
-    # # print(engine.task_tracker)
-    # print(engine.context_tracker)
-    # print(engine.output_dict)
-
     # wait for engine to finish
-    time.sleep(10)
+    time.sleep(3)
 
     # print engine status
-    print(engine.waiting_queue.qsize())
+    assert engine.waiting_queue.qsize() == 0
     # print(engine.task_tracker)
     prev_context_worker_mapping = {}
     for task_id, task in engine.task_tracker.items():
@@ -271,7 +322,7 @@ if __name__ == "__main__":
 
     time.sleep(10)
 
-    print(engine.waiting_queue.qsize())
+    assert engine.waiting_queue.qsize() == 0
     # print(engine.task_tracker)
     for task_id, task in engine.task_tracker.items():
         print(f"context_id: {task['task'].context_id}, worker_id: {task['worker_id']}") 

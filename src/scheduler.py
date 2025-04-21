@@ -1,10 +1,8 @@
-from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, Union
 import logging
-import time
-from enum import Enum
-from typing import Dict, List, Optional, Any, Set, Union
+from typing import Dict, List, Optional, Any
 from worker import BrowserWorkerTask
+from type.scheduler_type import SchedulerType, SchedulerOutput
+
 """
 Define the output of the scheduler
 scheduler_output = {
@@ -14,7 +12,6 @@ scheduler_output = {
     "task_id_004": "worker_gamma",
     # ... mapping for all n input tasks
 }
-
 """
 
 logger = logging.getLogger(__name__)
@@ -22,26 +19,6 @@ logger = logging.getLogger(__name__)
 def make_scheduler(scheduler_config):
     assert scheduler_config["type"] == SchedulerType.ROUND_ROBIN
     return RoundRobinScheduler(batch_size=scheduler_config["max_batch_size"], n_workers=scheduler_config["n_workers"])
-
-@dataclass
-class SchedulerOutput:
-    """
-    Represents the output of the scheduler, mapping task IDs to assigned worker IDs.
-    """
-    # Use field to initialize with an empty dict if no assignments are provided
-    task_assignments: Dict[str, str] = field(default_factory=dict) 
-    # Optional field for any extra metadata you might want to include
-    metadata: Union[Dict[str, Any], None] = None 
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, str]) -> "SchedulerOutput":
-        return cls(task_assignments=data)
-
-class SchedulerType(Enum):
-    """Types of scheduling strategies"""
-    ROUND_ROBIN = "round_robin"
-    LEAST_LOADED = "least_loaded"
-    CONTEXT_AFFINITY = "context_affinity"
 
 
 class RoundRobinScheduler:
