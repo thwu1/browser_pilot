@@ -168,7 +168,7 @@ def test_async_engine_basic():
         assert result["result"]["success"], "Observe failed"
 
     loop.run_until_complete(test_task())
-    engine._shutdown()
+    loop.run_until_complete(engine._shutdown())
     loop.close()
 
 

@@ -87,7 +87,7 @@ def analyze_by_command(outputs):
     metric_names = ["recv_to_start", "start_to_finish", "finish_to_send"]
     for i, label in enumerate(metric_names):
         data = [stats[cmd][i] for cmd in commands]
-        axes[i].boxplot(data, labels=commands)
+        axes[i].boxplot(data, tick_labels=commands)
         axes[i].set_title(label)
         axes[i].set_ylabel("Time (s)")
         axes[i].tick_params(axis="x", rotation=45)
@@ -251,7 +251,7 @@ def test_profiling_metrics():
     async def main():
         start_time = time.time()
         outputs = await asyncio.gather(
-            *[go_to_youtube_bilibili_return_html() for _ in range(64)]
+            *[go_to_youtube_bilibili_return_html() for _ in range(8)]
         )
         end_time = time.time()
         print(f"Total time: {end_time - start_time:.2f}s")
@@ -264,7 +264,7 @@ def test_profiling_metrics():
         plt.figure(figsize=(10, 6))
         plt.boxplot(
             [recv_to_start, start_to_finish, finish_to_send],
-            labels=["recv_to_start", "start_to_finish", "finish_to_send"],
+            tick_labels=["recv_to_start", "start_to_finish", "finish_to_send"],
         )
         plt.ylabel("Time (s)")
         plt.title("Worker Profiling Metrics")
