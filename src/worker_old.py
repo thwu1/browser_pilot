@@ -17,7 +17,6 @@ from typing import Dict, List, Optional, Any, Tuple, Set, Union
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 import zmq
-import zmq.asyncio
 import traceback
 from utils import make_zmq_socket
 from utils import JsonEncoder, JsonDecoder
@@ -997,7 +996,7 @@ class AsyncBrowserWorkerProc:
         self.report_cpu_and_memory = report_cpu_and_memory
         logger.info(f"Initializing AsyncBrowserWorkerProc {index}")
 
-        self.ctx = zmq.asyncio.Context()
+        self.ctx = zmq.Context()
         self.input_socket = make_zmq_socket(
             self.ctx,
             self.input_path,
@@ -1019,10 +1018,10 @@ class AsyncBrowserWorkerProc:
         self.ctx.term()
         self.worker.close()
 
-    async def _send_ready(self):
+    def _send_ready(self):
         assert self.worker.is_ready()
-        await self.output_socket.send_multipart(
-            [self.identity, MSG_TYPE_READY, self.encoder(["READY"])]
+        self.output_socket.send_multipart(
+            [self.identity, MSG_TYPE_READY, self.encoder(["READY"])], flags=zmq.NOBLOCK
         )
 
     @classmethod
@@ -1044,7 +1043,7 @@ class AsyncBrowserWorkerProc:
                 f"Worker started with input_path={input_path}, output_path={output_path}"
             )
             if worker.is_ready():
-                await proc._send_ready()
+                proc._send_ready()
 
             tasks = [
                 worker.process_task_queue_loop(),
@@ -1056,20 +1055,33 @@ class AsyncBrowserWorkerProc:
 
         try:
             asyncio.run(main_loop())
+        except KeyboardInterrupt:
+            logger.info("Worker stopped by keyboard interrupt")
         except Exception as e:
-            logger.error(f"Fatal error in worker: {e}, {traceback.format_exc()}")
+            logger.error(f"Fatal error in worker: {e}")
+            logger.error(traceback.format_exc())
         finally:
             proc.close()
 
     async def _recv(self):
-        msg = await self.input_socket.recv_multipart()
-        assert len(msg) == 1
-        return self.decoder(msg[0])
+        try:
+            msg = self.input_socket.recv_multipart(flags=zmq.NOBLOCK)
+            assert len(msg) == 1
+            return self.decoder(msg[0])
+        except zmq.Again:
+            logger.debug(
+                f"process_incoming_socket_loop running, input queue size: {self.worker.input_queue.qsize()}, output queue size: {self.worker.output_queue.qsize()}"
+            )
+            await asyncio.sleep(0.1)
+            return None
+        except Exception as e:
+            logger.error(f"Error receiving message: {e}")
+            return None
 
     async def _send(self, outputs: List[Dict[str, Any]], msg_type: bytes):
         assert isinstance(outputs, list)
         logger.debug(f"Sending {len(outputs)} outputs to client")
-        await self.output_socket.send_multipart(
+        self.output_socket.send_multipart(
             [self.identity, msg_type, self.encoder(outputs)]
         )
 
@@ -1077,8 +1089,8 @@ class AsyncBrowserWorkerProc:
         while self.worker.running:
             try:
                 tasks = await self._recv()
-                assert len(tasks) > 0, "Received empty tasks, this should not happen"
-
+                if not tasks:
+                    continue
                 recv_time = time.time()
                 for task in tasks:
                     task = BrowserWorkerTask.model_validate(task)
@@ -1087,8 +1099,14 @@ class AsyncBrowserWorkerProc:
                 logger.debug(
                     f"Received {len(tasks)} tasks from client, input queue size: {self.worker.input_queue.qsize()}, output queue size: {self.worker.output_queue.qsize()}"
                 )
+            except zmq.Again:
+                await asyncio.sleep(0.1)
+                logger.debug(
+                    f"process_incoming_socket_loop running, input queue size: {self.worker.input_queue.qsize()}, output queue size: {self.worker.output_queue.qsize()}"
+                )
             except Exception as e:
                 logger.error(f"Error processing incoming socket loop: {e}")
+                await asyncio.sleep(0.1)
 
     async def process_outgoing_socket_loop(self):
         while self.worker.running:
