@@ -302,9 +302,9 @@ class AsyncBrowserWorker:
 
             # Set default user agent to a modern browser if not provided
             if "user_agent" not in options:
-                options[
-                    "user_agent"
-                ] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+                options["user_agent"] = (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+                )
 
             # Set default viewport if not provided
             if "viewport" not in options:
