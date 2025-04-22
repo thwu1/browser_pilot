@@ -32,7 +32,7 @@
 # def test_mcp_commands():
 #     """Test the Playwright MCP command compatibility"""
 #     logger.info("Starting MCP command compatibility test")
-    
+
 #     # Check API status
 #     logger.info("Checking API status...")
 #     response = requests.get(f"{API_BASE}/status")
@@ -41,7 +41,7 @@
 #     else:
 #         logger.error(f"API status check failed: {response.status_code} - {response.text}")
 #         return
-    
+
 #     # Create a session
 #     logger.info("Creating a browser session...")
 #     session_data = {
@@ -53,10 +53,10 @@
 #     if response.status_code != 200:
 #         logger.error(f"Failed to create session: {response.status_code} - {response.text}")
 #         return
-    
+
 #     session_id = response.json()["session_id"]
 #     logger.info(f"Session created: {session_id}")
-    
+
 #     try:
 #         # Test 1: Navigate to a website using browser_navigate
 #         logger.info("Test 1: Using browser_navigate to go to Mozilla.org...")
@@ -69,7 +69,7 @@
 #             logger.error(f"Navigation failed: {response.status_code} - {response.text}")
 #             return
 #         logger.info(f"Navigation result: {response.json()}")
-        
+
 #         # Test 2: Navigate to another website
 #         logger.info("Test 2: Navigating to example.com...")
 #         command_data = {
@@ -81,7 +81,7 @@
 #             logger.error(f"Navigation failed: {response.status_code} - {response.text}")
 #             return
 #         logger.info(f"Navigation result: {response.json()}")
-        
+
 #         # Test 3: Test browser_navigate_back
 #         logger.info("Test 3: Testing browser_navigate_back...")
 #         command_data = {
@@ -93,7 +93,7 @@
 #             logger.error(f"Navigation back failed: {response.status_code} - {response.text}")
 #             return
 #         logger.info(f"Navigation back result: {response.json()}")
-        
+
 #         # Test 4: Test browser_navigate_forward
 #         logger.info("Test 4: Testing browser_navigate_forward...")
 #         command_data = {
@@ -105,7 +105,7 @@
 #             logger.error(f"Navigation forward failed: {response.status_code} - {response.text}")
 #             return
 #         logger.info(f"Navigation forward result: {response.json()}")
-        
+
 #         # Test 5: Test browser_press_key
 #         logger.info("Test 5: Testing browser_press_key...")
 #         command_data = {
@@ -117,7 +117,7 @@
 #             logger.error(f"Key press failed: {response.status_code} - {response.text}")
 #             return
 #         logger.info(f"Key press result: {response.json()}")
-        
+
 #         # Test 6: Test browser_wait
 #         logger.info("Test 6: Testing browser_wait...")
 #         command_data = {
@@ -129,7 +129,7 @@
 #             logger.error(f"Wait failed: {response.status_code} - {response.text}")
 #             return
 #         logger.info(f"Wait result: {response.json()}")
-        
+
 #         # Test 7: Test browser_pdf_save
 #         logger.info("Test 7: Testing browser_pdf_save...")
 #         command_data = {
@@ -140,12 +140,12 @@
 #         if response.status_code != 200:
 #             logger.error(f"PDF save failed: {response.status_code} - {response.text}")
 #             return
-        
+
 #         # Save the PDF to a file
 #         with open("example_page.pdf", "wb") as pdf_file:
 #             pdf_file.write(response.content)
 #         logger.info("PDF saved to example_page.pdf")
-        
+
 #         # Get the page title to verify current page
 #         logger.info("Getting page title...")
 #         command_data = {
@@ -157,7 +157,7 @@
 #             logger.error(f"Failed to get title: {response.status_code} - {response.text}")
 #         else:
 #             logger.info(f"Page title: {response.json()}")
-        
+
 #     finally:
 #         # Clean up the session
 #         logger.info(f"Deleting session {session_id}...")

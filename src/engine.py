@@ -1,18 +1,18 @@
-from scheduler import make_scheduler
 import asyncio
 import logging
 import multiprocessing as mp
-from typing import Dict, List, Set, Any, Optional, Tuple
-from dataclasses import dataclass
-from worker_client import WorkerClient, make_client
-import signal
 import queue
-from worker import BrowserWorkerTask
+import signal
 import time
-from collections import defaultdict
 import uuid
-import logging
-from type.scheduler_type import SchedulerType, SchedulerOutput
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from scheduler import make_scheduler
+from type.scheduler_type import SchedulerOutput, SchedulerType
+from worker import BrowserWorkerTask
+from worker_client import WorkerClient, make_client
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -149,7 +149,6 @@ class BrowserEngine:
     def _update_task_tracker_with_scheduler_output(
         self, tasks, scheduler_output: SchedulerOutput
     ):
-
         for task in tasks:
             self.task_tracker[task.task_id] = {
                 "worker_id": scheduler_output.task_assignments[task.task_id],

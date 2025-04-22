@@ -1,11 +1,12 @@
-import time
 import asyncio
-from engine import BrowserEngine, BrowserEngineConfig
-from worker import BrowserWorkerTask
-from scheduler import SchedulerType
 import threading
+import time
 import uuid
+
 from async_engine import AsyncBrowserEngine
+from engine import BrowserEngine, BrowserEngineConfig
+from scheduler import SchedulerType
+from worker import BrowserWorkerTask
 
 
 def test_engine_basic():

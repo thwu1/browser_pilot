@@ -87,12 +87,13 @@ def test_worker_client_communication_sync_multi_step():
         index=0,
     )
     result = client.get_output(timeout=2)
-    assert result[1]["result"]["success"] ==True, result
+    assert result[1]["result"]["success"] == True, result
     result = result[1]["result"]
     assert result["observation"] is not None, result["observation"]
     assert "accessibility" in result["observation"], result["observation"]
 
     client.close()
+
 
 def test_multi_worker_client_communication_sync():
     input_path = "ipc://input_sync"
@@ -142,13 +143,14 @@ def test_multi_worker_client_communication_sync():
         client.get_output(timeout=2)
     client.close()
 
+
 def test_multi_worker_multi_step():
     input_path = "ipc://input_sync"
     output_path = "ipc://output_sync"
     num_workers = 3
 
     client = WorkerClient(input_path, output_path, num_workers)
-    
+
     async def run_three_steps(index: int):
         context_id = f"{uuid.uuid4().hex[:8]}"
         task_id = f"task_{uuid.uuid4().hex[:8]}"
@@ -199,15 +201,14 @@ def test_multi_worker_multi_step():
         result = result["result"]
         assert "observation" in result, result
         assert "accessibility" in result["observation"], result["observation"]
-        
-    
+
     async def main():
         tasks = []
         for i in range(num_workers):
             task = asyncio.create_task(run_three_steps(i))
             tasks.append(task)
         await asyncio.gather(*tasks)
-    
+
     asyncio.run(main())
     client.close()
 
@@ -250,7 +251,7 @@ def test_async_worker_shutdown():
         assert False, "Should have timed out"
     except TimeoutError:
         assert True
-    
+
     client.send(
         [
             {
@@ -265,7 +266,7 @@ def test_async_worker_shutdown():
     client.get_output(timeout=2)
 
     client.close()
-    
+
 
 if __name__ == "__main__":
     test_async_worker_shutdown()

@@ -1,10 +1,11 @@
-from worker_client import WorkerClient
-import uuid
-import time
-import multiprocessing as mp
-from worker import AsyncBrowserWorkerProc
-import logging
 import asyncio
+import logging
+import multiprocessing as mp
+import time
+import uuid
+
+from worker import AsyncBrowserWorkerProc
+from worker_client import WorkerClient
 
 
 def test_worker_heartbeat_basic():
@@ -34,6 +35,7 @@ def test_worker_heartbeat_basic():
     assert worker_status[0]["num_contexts"] == 5, worker_status
     assert worker_status[0]["num_pages"] == 0, worker_status
     client.close()
+
 
 def test_worker_heartbeat_multi_worker():
     input_path = "ipc://input_sync"
@@ -66,7 +68,7 @@ def test_worker_heartbeat_multi_worker():
             ],
             index=1,
         )
-    
+
     for _ in range(7):
         client.get_output()
     time.sleep(1.1)
@@ -74,8 +76,9 @@ def test_worker_heartbeat_multi_worker():
     assert worker_status[0]["num_finished_tasks"] == 3, worker_status
     assert worker_status[1]["num_finished_tasks"] == 4, worker_status
     assert worker_status[2]["num_finished_tasks"] == 0, worker_status
-    
+
     client.close()
+
 
 def test_heartbeat_pages():
     input_path = "ipc://input_sync"
@@ -102,7 +105,7 @@ def test_heartbeat_pages():
         worker_status = client.get_worker_status_no_wait()
         assert worker_status[0]["num_contexts"] == 1, worker_status
         assert worker_status[0]["num_pages"] == 0, worker_status
-        
+
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         client.send(
             [

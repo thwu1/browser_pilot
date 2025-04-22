@@ -11,30 +11,30 @@
 #         self.result_port = result_port
 #         self._setup_zmq()
 #         print(f"BrowserWorkerClient {worker_id} initialized")
-        
+
 #     def _setup_zmq(self):
 #         """Set up ZMQ sockets for communication"""
 #         self.zmq_context = zmq.Context()
-        
+
 #         # Socket to send tasks (PUSH)
 #         self.task_socket = self.zmq_context.socket(zmq.PUSH)
 #         self.task_socket.setsockopt(zmq.LINGER, 5000)  # Don't wait for pending messages on close
 #         self.task_socket.connect(f"tcp://localhost:{self.task_port}")
-        
+
 #         # Socket to receive results (PULL)
 #         self.result_socket = self.zmq_context.socket(zmq.PULL)
 #         self.result_socket.setsockopt(zmq.LINGER, 5000)  # Don't wait for pending messages on close
 #         self.result_socket.setsockopt(zmq.RCVHWM, 10000)
 #         self.result_socket.connect(f"tcp://localhost:{self.result_port}")
-        
-    
+
+
 #     def send(self, message):
 #         """Send a message to the worker process"""
 #         time_ = time.time()
 #         message["timestamp"] = time_
 #         self.task_socket.send_json(message)
 #         print("Client sent message:", message)
-    
+
 #     def receive(self, timeout=1000):
 #         """Receive a message from the worker process"""
 #         try:
@@ -54,21 +54,21 @@
 
 #         self.input_queue = asyncio.Queue()
 #         self.output_queue = asyncio.Queue()
-        
+
 #     def _setup_zmq(self):
 #         """Set up ZMQ sockets for communication"""
 #         self.zmq_context = zmq.Context()
-        
+
 #         # Socket to receive tasks (PULL)
 #         self.task_socket = self.zmq_context.socket(zmq.PULL)
 #         self.task_socket.setsockopt(zmq.LINGER, 5000)  # Don't wait for pending messages on close
 #         self.task_socket.bind(f"tcp://*:{self.task_port}")
-        
+
 #         # Socket to send results (PUSH)
 #         self.result_socket = self.zmq_context.socket(zmq.PUSH)
 #         self.result_socket.setsockopt(zmq.LINGER, 5000)  # Don't wait for pending messages on close
 #         self.result_socket.bind(f"tcp://*:{self.result_port}")
-        
+
 #     async def send_loop(self):
 #         """Send a message to the worker process"""
 #         while True:
@@ -87,7 +87,7 @@
 #             except Exception as e:
 #                 print(f"Error sending message: {e}")
 #                 await asyncio.sleep(0.1)
-            
+
 #     async def receive_loop(self, timeout=1000):
 #         """Receive a message from the worker process"""
 #         while True:
@@ -98,7 +98,7 @@
 #                     self.input_queue.put_nowait(message)
 #             except zmq.Again:
 #                 await asyncio.sleep(0.1)
-    
+
 #     async def process_loop(self):
 #         while True:
 #             try:
@@ -108,7 +108,7 @@
 #                 self.output_queue.put_nowait(message)
 #             except asyncio.QueueEmpty:
 #                 await asyncio.sleep(0.1)
-    
+
 #     @staticmethod
 #     def run_background_loop(task_port, result_port):
 #         """Run the server in a background loop"""
@@ -119,10 +119,6 @@
 #         async def main_loop():
 #             await asyncio.gather(*tasks)
 #         asyncio.run(main_loop())
-        
-    
-                
-
 
 
 # def test_client_server_communication():
@@ -131,13 +127,13 @@
 #     proc.start()
 
 #     client = Client("test_worker_cfa378c0", 6000, 6001)
-    
+
 #     try:
 #         client.send({"value": 0, "result": {"hello": "world", "value": 0}, "task_id": f"task_{uuid.uuid4().hex[:8]}", "context_id": f"{uuid.uuid4().hex[:8]}", "command": "create_context"})
-        
+
 #         start_time = time.time()
 #         timeout = 30  # 30 seconds timeout
-        
+
 #         for i in range(25):
 #             result = None
 #             while result is None:
@@ -145,33 +141,27 @@
 #                     break
 #                 result = client.receive()
 #                 time.sleep(0.1)  # Short sleep to prevent busy waiting
-            
+
 #             result["value"] += 1
 #             client.send(result)
-        
+
 #         assert result["value"] == 50, f"Expected value 50, but got {result['value']}"
-        
+
 #     except Exception as e:
 #         pytest.fail(f"Test failed with error: {str(e)}")
-    
+
 #     finally:
 #         # Terminate the server process and free up resources
 #         proc.terminate()
 #         proc.join(timeout=5)  # Wait for the process to finish with a timeout
-        
+
 #         if proc.is_alive():
 #             proc.kill()  # Force kill if it's still running
 #             pytest.fail("Server process did not terminate gracefully")
-        
+
 #         # Close the client's ZMQ sockets and context
 #         client.task_socket.close()
 #         client.result_socket.close()
 #         client.zmq_context.term()
-        
+
 #         print("Server process terminated and resources freed.")
-
-
-
-
-        
-        

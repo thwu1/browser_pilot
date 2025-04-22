@@ -1,21 +1,20 @@
 import asyncio
 import logging
+import signal
 import time
 import uuid
-from typing import Dict, Any, Optional
+from contextlib import asynccontextmanager
 from functools import partial
+from typing import Any, Dict, Optional
 
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from contextlib import asynccontextmanager
 
 from async_engine import AsyncBrowserEngine
 from engine import BrowserEngineConfig
 from scheduler import SchedulerType
 from worker import BrowserWorkerTask
-import uvicorn
-import signal
-
 
 # Configure logging
 logging.basicConfig(

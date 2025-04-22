@@ -11,14 +11,13 @@ import json
 import logging
 import os
 import uuid
-from typing import Dict, Any, Optional
-
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Response
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from typing import Any, Dict, Optional
 
 from async_worker import AsyncBrowserWorker
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
+from fastapi.responses import JSONResponse
 from monitor import setup_worker_monitoring
+from pydantic import BaseModel, Field
 
 # Configure logging
 logging.basicConfig(

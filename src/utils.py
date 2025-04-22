@@ -1,8 +1,9 @@
 import json
 from typing import Any, Optional, Union
+
+import psutil
 import zmq
 import zmq.asyncio
-import psutil
 
 MSG_TYPE_READY = b"R"
 MSG_TYPE_STATUS = b"S"

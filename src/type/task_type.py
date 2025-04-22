@@ -1,5 +1,6 @@
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -28,7 +29,6 @@ class BrowserWorkerTask(BaseModel):
 
 
 if __name__ == "__main__":
-
     task = BrowserWorkerTask(
         task_id="task_1",
         command="create_context",

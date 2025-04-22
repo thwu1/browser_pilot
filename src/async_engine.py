@@ -1,13 +1,12 @@
 import asyncio
+import logging
 import time
 import uuid
 from collections import defaultdict
-from typing import List, Dict
+from typing import Dict, List
 
 from engine import BrowserEngine, BrowserEngineConfig, BrowserWorkerTask
 from scheduler import SchedulerOutput
-
-import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

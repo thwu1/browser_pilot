@@ -7,19 +7,26 @@ communication with browser workers running in separate processes.
 
 import asyncio
 import logging
-import time
-import uuid
-import zmq
-import zmq.asyncio
-from typing import Dict, Any, Optional
-from utils import make_zmq_socket, JsonEncoder, JsonDecoder
-import weakref
 import multiprocessing as mp
-from worker import AsyncBrowserWorkerProc
-from typing import List
 import queue
 import threading
-from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
+import time
+import uuid
+import weakref
+from typing import Any, Dict, List, Optional
+
+import zmq
+import zmq.asyncio
+
+from utils import (
+    MSG_TYPE_OUTPUT,
+    MSG_TYPE_READY,
+    MSG_TYPE_STATUS,
+    JsonDecoder,
+    JsonEncoder,
+    make_zmq_socket,
+)
+from worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(
     level=logging.INFO,

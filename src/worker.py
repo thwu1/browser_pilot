@@ -18,13 +18,18 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import zmq
 import zmq.asyncio
-from playwright.async_api import (Browser, BrowserContext, Page,
-                                  async_playwright)
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from type.task_type import BrowserWorkerTask
 from type.worker_type import WorkerStatus
-from utils import (MSG_TYPE_OUTPUT, MSG_TYPE_READY, MSG_TYPE_STATUS,
-                   JsonDecoder, JsonEncoder, make_zmq_socket)
+from utils import (
+    MSG_TYPE_OUTPUT,
+    MSG_TYPE_READY,
+    MSG_TYPE_STATUS,
+    JsonDecoder,
+    JsonEncoder,
+    make_zmq_socket,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -297,9 +302,9 @@ class AsyncBrowserWorker:
 
             # Set default user agent to a modern browser if not provided
             if "user_agent" not in options:
-                options["user_agent"] = (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-                )
+                options[
+                    "user_agent"
+                ] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 
             # Set default viewport if not provided
             if "viewport" not in options:
@@ -389,7 +394,7 @@ class AsyncBrowserWorker:
             loop.create_task(self.playwright.stop(), name="playwright_shutdown")
         if self.browser:
             loop.create_task(self.browser.close(), name="browser_shutdown")
-        
+
         # Cancel all tasks that are not shutdown-related
         for task in asyncio.all_tasks(loop):
             if task.get_name() not in ["playwright_shutdown", "browser_shutdown"]:
@@ -401,7 +406,9 @@ class AsyncBrowserWorker:
         # Wait for the loop to stop with a timeout
         try:
             wait_start = time.time()
-            while loop.is_running() and time.time() - wait_start < 5:  # 5-second timeout
+            while (
+                loop.is_running() and time.time() - wait_start < 5
+            ):  # 5-second timeout
                 time.sleep(0.1)
             if loop.is_running():
                 logger.warning("Loop did not stop within the timeout period")
@@ -520,7 +527,10 @@ class AsyncBrowserWorker:
         Returns:
             Result of the command execution
         """
-        if context_id not in self.contexts and command not in ["create_context", "shutdown"]:
+        if context_id not in self.contexts and command not in [
+            "create_context",
+            "shutdown",
+        ]:
             raise ValueError(f"Context {context_id} not found")
 
         if command not in ["create_context", "shutdown"]:
@@ -1221,4 +1231,3 @@ class AsyncBrowserWorkerProc:
         self.input_socket.close()
         self.output_socket.close()
         self.ctx.term()
-        

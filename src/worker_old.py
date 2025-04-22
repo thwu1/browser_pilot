@@ -10,19 +10,25 @@ import asyncio
 import logging
 import os
 import time
+import traceback
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Any, Tuple, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 import zmq
-import traceback
-from utils import make_zmq_socket
-from utils import JsonEncoder, JsonDecoder
-from utils import MSG_TYPE_READY, MSG_TYPE_STATUS, MSG_TYPE_OUTPUT
-from type.worker_type import WorkerStatus
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+
 from type.task_type import BrowserWorkerTask
+from type.worker_type import WorkerStatus
+from utils import (
+    MSG_TYPE_OUTPUT,
+    MSG_TYPE_READY,
+    MSG_TYPE_STATUS,
+    JsonDecoder,
+    JsonEncoder,
+    make_zmq_socket,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -295,9 +301,9 @@ class AsyncBrowserWorker:
 
             # Set default user agent to a modern browser if not provided
             if "user_agent" not in options:
-                options["user_agent"] = (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-                )
+                options[
+                    "user_agent"
+                ] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 
             # Set default viewport if not provided
             if "viewport" not in options:

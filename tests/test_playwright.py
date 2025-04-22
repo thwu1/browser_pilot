@@ -1,7 +1,7 @@
 from playwright.sync_api import sync_playwright
 
-def test_playwright_install():
 
+def test_playwright_install():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
