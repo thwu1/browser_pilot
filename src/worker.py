@@ -22,14 +22,7 @@ from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from type.task_type import BrowserWorkerTask
 from type.worker_type import WorkerStatus
-from utils import (
-    MSG_TYPE_OUTPUT,
-    MSG_TYPE_READY,
-    MSG_TYPE_STATUS,
-    JsonDecoder,
-    JsonEncoder,
-    make_zmq_socket,
-)
+from utils import JsonDecoder, JsonEncoder, MsgType, make_zmq_socket
 
 # Configure logging
 logging.basicConfig(
@@ -1060,7 +1053,7 @@ class AsyncBrowserWorkerProc:
     async def _send_ready(self):
         assert self.worker.is_ready()
         await self.output_socket.send_multipart(
-            [self.identity, MSG_TYPE_READY, self.encoder(["READY"])]
+            [self.identity, MsgType.READY, self.encoder(["READY"])]
         )
 
     @classmethod
@@ -1141,7 +1134,7 @@ class AsyncBrowserWorkerProc:
                 outputs.append(output)
 
             assert len(outputs) > 0, "No outputs to send, this should not happen"
-            await self._send(outputs, MSG_TYPE_OUTPUT)
+            await self._send(outputs, MsgType.OUTPUT)
 
     async def send_heartbeat_loop(self):
         """Send periodic heartbeat status updates to the client
@@ -1208,7 +1201,7 @@ class AsyncBrowserWorkerProc:
                 prev_throughput_per_sec = status.throughput_per_sec
                 prev_time = current_time
 
-                await self._send([status.to_dict()], MSG_TYPE_STATUS)
+                await self._send([status.to_dict()], MsgType.STATUS)
                 logger.debug(
                     f"Heartbeat worker {self.worker.index}: "
                     + f"CPU: {status.cpu_usage_percent:.1f}%, "

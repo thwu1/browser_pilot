@@ -1,13 +1,16 @@
 import json
+from enum import Enum
 from typing import Any, Optional, Union
 
 import psutil
 import zmq
 import zmq.asyncio
 
-MSG_TYPE_READY = b"R"
-MSG_TYPE_STATUS = b"S"
-MSG_TYPE_OUTPUT = b"O"
+
+class MsgType(bytes,Enum):
+    READY = b"R"
+    STATUS = b"S"
+    OUTPUT = b"O"
 
 
 # Adapted from: https://github.com/sgl-project/sglang/blob/v0.4.1/python/sglang/srt/utils.py#L783 # noqa: E501

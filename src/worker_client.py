@@ -19,9 +19,7 @@ import zmq
 import zmq.asyncio
 
 from utils import (
-    MSG_TYPE_OUTPUT,
-    MSG_TYPE_READY,
-    MSG_TYPE_STATUS,
+    MsgType,
     JsonDecoder,
     JsonEncoder,
     make_zmq_socket,
@@ -92,7 +90,7 @@ class WorkerClient:
         start_time = time.time()
         while waiting_workers and time.time() - start_time < timeout:
             idx, msg_type, msg = self._recv()
-            if msg_type == MSG_TYPE_READY:
+            if msg_type == MsgType.READY:
                 waiting_workers.remove(idx)
             logger.debug(f"Received message from worker {idx}: {msg}")
         if waiting_workers:
@@ -157,12 +155,12 @@ class WorkerClient:
     def _recv_thread(self):
         while self._recv_thread_running:
             idx, msg_type, msg = self._recv()
-            if msg_type == MSG_TYPE_OUTPUT and msg:
+            if msg_type == MsgType.OUTPUT and msg:
                 for m in msg:
                     logger.debug(f"Received message from worker {idx}: {m}")
                     assert isinstance(m, dict)
                     self.output_queue.put((idx, m))
-            elif msg_type == MSG_TYPE_STATUS and msg:
+            elif msg_type == MsgType.STATUS and msg:
                 assert isinstance(msg, list)
                 assert isinstance(msg[0], dict)
                 logger.debug(f"Received status from worker {idx}: {msg[0]}")
