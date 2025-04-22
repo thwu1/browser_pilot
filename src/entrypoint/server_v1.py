@@ -13,6 +13,9 @@ from async_engine import AsyncBrowserEngine
 from engine import BrowserEngineConfig
 from scheduler import SchedulerType
 from worker import BrowserWorkerTask
+import uvicorn
+import signal
+
 
 # Configure logging
 logging.basicConfig(
@@ -31,9 +34,13 @@ should_exit = False
 async def lifespan(_: FastAPI):
     # Startup: initialize the engine
     await start()
-    yield
-    # Shutdown: stop the engine
-    await stop()
+    try:
+        yield
+    except asyncio.CancelledError:
+        # swallow the cancellation so Starlette doesn't log it
+        logger.info("Lifespan cancelled, exiting without error")
+    finally:
+        await stop()
 
 
 app = FastAPI(
@@ -230,10 +237,6 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    import uvicorn
-    import signal
-    import sys
-
     # Get the event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -259,6 +262,9 @@ if __name__ == "__main__":
     try:
         # Run the server
         loop.run_until_complete(server.serve())
+    except asyncio.CancelledError:
+        logger.info("Server loop cancelled")
+        pass
     except Exception as e:
         logger.error(f"Server error: {e}")
     finally:
