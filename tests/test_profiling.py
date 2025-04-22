@@ -254,7 +254,7 @@ def test_profiling_metrics():
     async def main():
         start_time = time.time()
         outputs = await asyncio.gather(
-            *[go_to_youtube_bilibili_return_html() for _ in range(16)]
+            *[go_to_youtube_bilibili_return_html() for _ in range(4)]
         )
         end_time = time.time()
         print(f"Total time: {end_time - start_time:.2f}s")

@@ -1,11 +1,3 @@
-"""
-Browser Worker Module
-
-This module implements the browser worker component of the Remote Browser Automation Service.
-It manages browser processes and contexts, handles commands and observations, and provides
-reliability features for browser automation.
-"""
-
 import asyncio
 import logging
 import os
@@ -14,21 +6,16 @@ import traceback
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional
 
 import zmq
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+import zmq.asyncio
+from playwright.async_api import (Browser, BrowserContext, Page,
+                                  async_playwright)
 
 from type.task_type import BrowserWorkerTask
 from type.worker_type import WorkerStatus
-from utils import (
-    MSG_TYPE_OUTPUT,
-    MSG_TYPE_READY,
-    MSG_TYPE_STATUS,
-    JsonDecoder,
-    JsonEncoder,
-    make_zmq_socket,
-)
+from utils import JsonDecoder, JsonEncoder, MsgType, make_zmq_socket
 
 # Configure logging
 logging.basicConfig(
@@ -383,6 +370,38 @@ class AsyncBrowserWorker:
     def shutdown(self):
         logger.info(f"Shutting down worker {self.index}")
         self.running = False
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.info("No running loop found, skipping shutdown")
+            return
+
+        if self.playwright:
+            loop.create_task(self.playwright.stop(), name="playwright_shutdown")
+        if self.browser:
+            loop.create_task(self.browser.close(), name="browser_shutdown")
+
+        # Cancel all tasks that are not shutdown-related
+        for task in asyncio.all_tasks(loop):
+            if task.get_name() not in ["playwright_shutdown", "browser_shutdown"]:
+                task.cancel()
+
+        self.browser = None
+        self.playwright = None
+
+        # Wait for the loop to stop with a timeout
+        try:
+            wait_start = time.time()
+            while (
+                loop.is_running() and time.time() - wait_start < 5
+            ):  # 5-second timeout
+                time.sleep(0.1)
+            if loop.is_running():
+                logger.warning("Loop did not stop within the timeout period")
+        except asyncio.CancelledError:
+            pass
+
+        loop.close()
 
     # async def hibernate_context(self, context_id: str) -> Dict[str, Any]:
     #     """
@@ -494,10 +513,13 @@ class AsyncBrowserWorker:
         Returns:
             Result of the command execution
         """
-        if context_id not in self.contexts and command != "create_context":
+        if context_id not in self.contexts and command not in [
+            "create_context",
+            "shutdown",
+        ]:
             raise ValueError(f"Context {context_id} not found")
 
-        if command != "create_context":
+        if command not in ["create_context", "shutdown"]:
             context_info = self.contexts[context_id]
 
             # Reactivate if hibernated
@@ -518,7 +540,10 @@ class AsyncBrowserWorker:
 
             logger.debug(f"Executing command: {command} with params: {params}")
 
-            if command == "create_context":
+            if command == "shutdown":
+                self.shutdown()
+
+            elif command == "create_context":
                 await self.create_context(context_id, params)
                 result = {"success": True, "context_id": context_id, "page_id": None}
                 context_info = self.contexts[context_id]
@@ -1018,16 +1043,10 @@ class AsyncBrowserWorkerProc:
         self.encoder = JsonEncoder()
         self.decoder = JsonDecoder()
 
-    def close(self):
-        self.input_socket.close()
-        self.output_socket.close()
-        self.ctx.term()
-        self.worker.close()
-
     def _send_ready(self):
         assert self.worker.is_ready()
         self.output_socket.send_multipart(
-            [self.identity, MSG_TYPE_READY, self.encoder(["READY"])], flags=zmq.NOBLOCK
+            [self.identity, MsgType.READY, self.encoder(["READY"])], flags=zmq.NOBLOCK
         )
 
     @classmethod
@@ -1061,13 +1080,10 @@ class AsyncBrowserWorkerProc:
 
         try:
             asyncio.run(main_loop())
-        except KeyboardInterrupt:
-            logger.info("Worker stopped by keyboard interrupt")
         except Exception as e:
-            logger.error(f"Fatal error in worker: {e}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Fatal error in worker: {e}, {traceback.format_exc()}")
         finally:
-            proc.close()
+            proc.shutdown()
 
     async def _recv(self):
         try:
@@ -1127,7 +1143,7 @@ class AsyncBrowserWorkerProc:
                 outputs.append(output)
 
             assert len(outputs) > 0, "No outputs to send, this should not happen"
-            await self._send(outputs, MSG_TYPE_OUTPUT)
+            await self._send(outputs, MsgType.OUTPUT)
 
     async def send_heartbeat_loop(self):
         """Send periodic heartbeat status updates to the client
@@ -1194,7 +1210,7 @@ class AsyncBrowserWorkerProc:
                 prev_throughput_per_sec = status.throughput_per_sec
                 prev_time = current_time
 
-                await self._send([status.to_dict()], MSG_TYPE_STATUS)
+                await self._send([status.to_dict()], MsgType.STATUS)
                 logger.debug(
                     f"Heartbeat worker {self.worker.index}: "
                     + f"CPU: {status.cpu_usage_percent:.1f}%, "
@@ -1211,7 +1227,9 @@ class AsyncBrowserWorkerProc:
             logger.error(f"Error in heartbeat loop: {e}")
             raise
 
-    def stop(self):
-        logger.info(f"Stopping worker {self.worker.index}")
-        self.worker.running = False
+    def shutdown(self):
+        logger.info(f"Shutting down worker {self.worker.index}")
         self.worker.shutdown()
+        self.input_socket.close()
+        self.output_socket.close()
+        self.ctx.term()

@@ -1,11 +1,7 @@
 import pytest
 
-from scheduler import (
-    RoundRobinScheduler,
-    SchedulerOutput,
-    SchedulerType,
-    make_scheduler,
-)
+from scheduler import (RoundRobinScheduler, SchedulerOutput, SchedulerType,
+                       make_scheduler)
 from worker import BrowserWorkerTask
 
 

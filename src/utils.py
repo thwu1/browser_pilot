@@ -7,7 +7,7 @@ import zmq
 import zmq.asyncio
 
 
-class MsgType(bytes,Enum):
+class MsgType(bytes, Enum):
     READY = b"R"
     STATUS = b"S"
     OUTPUT = b"O"

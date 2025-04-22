@@ -18,12 +18,7 @@ from typing import Any, Dict, List, Optional
 import zmq
 import zmq.asyncio
 
-from utils import (
-    MsgType,
-    JsonDecoder,
-    JsonEncoder,
-    make_zmq_socket,
-)
+from utils import JsonDecoder, JsonEncoder, MsgType, make_zmq_socket
 from worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(
