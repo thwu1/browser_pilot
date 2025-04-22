@@ -162,8 +162,8 @@ async def create_context_helper(client):
 
 
 def test_profiling_metrics():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 1
 
     client = WorkerClient(input_path, output_path, num_workers)

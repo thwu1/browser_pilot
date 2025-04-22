@@ -70,7 +70,7 @@ temp_file=$(mktemp)
         fi
         
         # Run the command and mark completion in temp file when done
-        (python test_worker_comm.py --input-path "ipc://in_$task_port" --output-path "ipc://out_$result_port" --total $total && echo "done" >> "$temp_file") &
+        (python test_worker_comm.py --input-path "ipc://in_$task_port.sock" --output-path "ipc://out_$result_port.sock" --total $total && echo "done" >> "$temp_file") &
     done
 
     wait

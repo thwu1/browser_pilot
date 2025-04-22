@@ -9,8 +9,8 @@ from worker_client import WorkerClient
 
 
 def test_worker_client_communication_sync():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 1
 
     client = WorkerClient(input_path, output_path, num_workers)
@@ -34,8 +34,8 @@ def test_worker_client_communication_sync():
 
 
 def test_worker_client_communication_sync_multi_step():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 1
 
     client = WorkerClient(input_path, output_path, num_workers)
@@ -96,8 +96,8 @@ def test_worker_client_communication_sync_multi_step():
 
 
 def test_multi_worker_client_communication_sync():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 3
 
     client = WorkerClient(input_path, output_path, num_workers)
@@ -145,8 +145,8 @@ def test_multi_worker_client_communication_sync():
 
 
 def test_multi_worker_multi_step():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 3
 
     client = WorkerClient(input_path, output_path, num_workers)
@@ -214,8 +214,8 @@ def test_multi_worker_multi_step():
 
 
 def test_async_worker_shutdown():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 2
 
     client = WorkerClient(input_path, output_path, num_workers)

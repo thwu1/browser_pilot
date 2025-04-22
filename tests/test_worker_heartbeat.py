@@ -9,8 +9,8 @@ from worker_client import WorkerClient
 
 
 def test_worker_heartbeat_basic():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 1
 
     client = WorkerClient(input_path, output_path, num_workers)
@@ -38,8 +38,8 @@ def test_worker_heartbeat_basic():
 
 
 def test_worker_heartbeat_multi_worker():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 3
 
     client = WorkerClient(input_path, output_path, num_workers)
@@ -81,8 +81,8 @@ def test_worker_heartbeat_multi_worker():
 
 
 def test_heartbeat_pages():
-    input_path = "ipc://input_sync"
-    output_path = "ipc://output_sync"
+    input_path = "ipc://input_sync.sock"
+    output_path = "ipc://output_sync.sock"
     num_workers = 1
 
     client = WorkerClient(input_path, output_path, num_workers)

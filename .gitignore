@@ -18,3 +18,5 @@ venv/
 *egg-info*
 
 profiling*
+
+*.sock

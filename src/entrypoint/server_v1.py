@@ -51,8 +51,8 @@ app = FastAPI(
 # Engine configuration
 DEFAULT_CONFIG = {
     "worker_client_config": {
-        "input_path": "ipc://input_fastapi",
-        "output_path": "ipc://output_fastapi",
+        "input_path": "ipc://input_fastapi.sock",
+        "output_path": "ipc://output_fastapi.sock",
         "num_workers": 4,
     },
     "scheduler_config": {

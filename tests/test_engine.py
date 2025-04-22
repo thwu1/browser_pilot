@@ -14,8 +14,8 @@ def test_engine_basic():
 
     config = {
         "worker_client_config": {
-            "input_path": "ipc://test_input_sync_affinity",
-            "output_path": "ipc://test_output_sync_affinity",
+            "input_path": "ipc://test_input_sync_affinity.sock",
+            "output_path": "ipc://test_output_sync_affinity.sock",
             "num_workers": 3,
         },
         "scheduler_config": {
@@ -118,8 +118,8 @@ def test_engine_basic():
 def test_async_engine_basic():
     config = {
         "worker_client_config": {
-            "input_path": "ipc://test_input_sync_affinity",
-            "output_path": "ipc://test_output_sync_affinity",
+            "input_path": "ipc://test_input_sync_affinity.sock",
+            "output_path": "ipc://test_output_sync_affinity.sock",
             "num_workers": 3,
         },
         "scheduler_config": {

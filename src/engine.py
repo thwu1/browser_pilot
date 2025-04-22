@@ -200,8 +200,8 @@ if __name__ == "__main__":
 
     config = {
         "worker_client_config": {
-            "input_path": "ipc://input_sync",
-            "output_path": "ipc://output_sync",
+            "input_path": "ipc://input_sync.sock",
+            "output_path": "ipc://output_sync.sock",
             "num_workers": 3,
         },
         "scheduler_config": {
