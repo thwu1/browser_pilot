@@ -1,10 +1,12 @@
-from worker_client import WorkerClient
-import uuid
-import time
-import multiprocessing as mp
-from worker import AsyncBrowserWorkerProc
-import logging
 import asyncio
+import logging
+import multiprocessing as mp
+import time
+import uuid
+
+from worker import AsyncBrowserWorkerProc
+from worker_client import WorkerClient
+
 
 def test_worker_client_communication_sync():
     input_path = "ipc://input_sync"
@@ -208,3 +210,62 @@ def test_multi_worker_multi_step():
     
     asyncio.run(main())
     client.close()
+
+
+def test_async_worker_shutdown():
+    input_path = "ipc://input_sync"
+    output_path = "ipc://output_sync"
+    num_workers = 2
+
+    client = WorkerClient(input_path, output_path, num_workers)
+
+    time.sleep(1)
+
+    client.send(
+        [
+            {
+                "command": "shutdown",
+                "task_id": f"shutdown_{uuid.uuid4().hex[:8]}",
+                "context_id": None,
+                "page_id": None,
+            }
+        ],
+        index=0,
+    )
+    time.sleep(1)
+
+    client.send(
+        [
+            {
+                "command": "create_context",
+                "task_id": f"{uuid.uuid4().hex[:8]}",
+                "context_id": f"{uuid.uuid4().hex[:8]}",
+                "page_id": None,
+            }
+        ],
+        index=0,
+    )
+    try:
+        client.get_output(timeout=2)
+        assert False, "Should have timed out"
+    except TimeoutError:
+        assert True
+    
+    client.send(
+        [
+            {
+                "command": "create_context",
+                "task_id": f"{uuid.uuid4().hex[:8]}",
+                "context_id": f"{uuid.uuid4().hex[:8]}",
+                "page_id": None,
+            }
+        ],
+        index=1,
+    )
+    client.get_output(timeout=2)
+
+    client.close()
+    
+
+if __name__ == "__main__":
+    test_async_worker_shutdown()
