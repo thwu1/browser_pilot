@@ -5,18 +5,8 @@ import time
 from worker import AsyncBrowserWorker
 
 
-async def setup():
-    playwright = await async_playwright().start()
-
-    # Launch browser with appropriate options
-    browser_type = playwright.chromium
-    browser = await browser_type.launch(headless=True)
-
-    return browser
-
 
 timeout = 30000
-
 
 async def create_context(context_options, browser):
     # Create browser context with provided options
@@ -112,7 +102,7 @@ async def run_one_traj(browser):
 
 async def main():
     start_time = time.time()
-    browser = await setup()
+    browser, playwright = await setup()
     results = await asyncio.gather(*[run_one_traj(browser) for _ in range(8)])
     with open(f"multiprocess_async_{os.getpid()}.csv", "w") as f:
         for result in results:
@@ -121,7 +111,8 @@ async def main():
     print(
         f"Total time: {end_time - start_time} seconds, finished {sum([result != False for result in results])} trajectories"
     )
-    # await browser.close()
+    await browser.close()
+    await playwright.stop()
 
 
 if __name__ == "__main__":

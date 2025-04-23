@@ -528,31 +528,44 @@ def summary(df):
 
     return df
 
-
-if __name__ == "__main__":
-    # Set higher ulimit for more open files (run this or a similar command in your shell)
-    # import resource
-    # resource.setrlimit(resource.RLIMIT_NOFILE, (10000, 10000))
-
-    # Disable excessive logging
-    # logging.basicConfig(level=logging.WARNING)
-
-    # Use uvloop for faster event loop
+def test_server_v1(total=256, batch_size=8):
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-    print(f"Running with 256 concurrent requests, optimized for speed...")
+    print(f"Running with {total} concurrent requests, optimized for speed...")
     start_time = time.time()
-    outputs, cmds = asyncio.run(test_navigate_concurrent_async(24, batch_size=8))
+    outputs, cmds = asyncio.run(test_navigate_concurrent_async(total, batch_size=batch_size))
     end_time = time.time()
     print(f"Time taken: {end_time - start_time} seconds")
     df = calculate_metrics(outputs, cmds)
     df = summary(df)
-    df.to_csv(f"server_v1_async_{os.getpid()}.csv", index=False)
+    return df
+    # df.to_csv(f"server_v1_async_{os.getpid()}.csv", index=False)
 
-    # start_time = time.time()
-    # outputs, cmds = test_navigate_threaded(8)
-    # end_time = time.time()
-    # df = calculate_metrics(outputs, cmds)
-    # df = summary(df)
-    # df.to_csv(f"server_v1_sync_{os.getpid()}.csv", index=False)
+
+# if __name__ == "__main__":
+#     # Set higher ulimit for more open files (run this or a similar command in your shell)
+#     # import resource
+#     # resource.setrlimit(resource.RLIMIT_NOFILE, (10000, 10000))
+
+#     # Disable excessive logging
+#     # logging.basicConfig(level=logging.WARNING)
+
+#     # Use uvloop for faster event loop
+#     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+#     print(f"Running with 256 concurrent requests, optimized for speed...")
+#     start_time = time.time()
+#     outputs, cmds = asyncio.run(test_navigate_concurrent_async(24, batch_size=8))
+#     end_time = time.time()
+#     print(f"Time taken: {end_time - start_time} seconds")
+#     df = calculate_metrics(outputs, cmds)
+#     df = summary(df)
+#     df.to_csv(f"server_v1_async_{os.getpid()}.csv", index=False)
+
+#     # start_time = time.time()
+#     # outputs, cmds = test_navigate_threaded(8)
+#     # end_time = time.time()
+#     # df = calculate_metrics(outputs, cmds)
+#     # df = summary(df)
+#     # df.to_csv(f"server_v1_sync_{os.getpid()}.csv", index=False)
 

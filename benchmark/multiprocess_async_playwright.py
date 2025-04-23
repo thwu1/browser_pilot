@@ -4,7 +4,7 @@ import time
 
 import uvloop
 from playwright.async_api import async_playwright
-
+import pandas as pd
 
 async def setup():
     playwright = await async_playwright().start()
@@ -13,7 +13,7 @@ async def setup():
     browser_type = playwright.chromium
     browser = await browser_type.launch(headless=True)
 
-    return browser
+    return browser, playwright
 
 
 timeout = 30000
@@ -111,35 +111,54 @@ async def run_one_traj(browser):
         cmds.append("get_observation")
         observation = await get_observation(page)
         times.append(time.time())
+        cmds.append("close_context")
+        await context.close()
+        times.append(time.time())
         return times, cmds
     except Exception as e:
         print(f"Error in run_one_traj: {e}")
         return False
 
 
-async def main():
+async def _test_async_playwright(concurrency):
     start_time = time.time()
-    browser = await setup()
-    results = await asyncio.gather(*[run_one_traj(browser) for _ in range(8)])
+    browser, playwright = await setup()
+    results = await asyncio.gather(*[run_one_traj(browser) for _ in range(concurrency)])
     end_time = time.time()
     print(
         f"Total time: {end_time - start_time} seconds, finished {sum([result != False for result in results])} trajectories"
     )
-    # await browser.close()
-    return results
-
-
-if __name__ == "__main__":
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    results = asyncio.run(main())
+    await browser.close()
+    await playwright.stop()
 
     durations = []
     cmds = []
+    start_time = []
     for times, cmd in results:
         cmds.extend(cmd)
         durations.extend([times[i + 1] - times[i] for i in range(len(times) - 1)])
+        start_time.extend(times[:-1])
 
-    import pandas as pd
+    return pd.DataFrame({"cmds": cmds, "duration": durations, "start_time": start_time})
 
-    df = pd.DataFrame({"cmds": cmds, "duration": durations})
-    df.to_csv(f"multiprocess_async_playwright_{os.getpid()}.csv", index=False)
+def test_async_playwright(concurrency, *args):
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    return asyncio.run(_test_async_playwright(concurrency))
+
+
+# if __name__ == "__main__":
+#     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+#     results = asyncio.run(main())
+
+#     durations = []
+#     cmds = []
+#     start_time = []
+#     for times, cmd in results:
+#         cmds.extend(cmd)
+#         durations.extend([times[i + 1] - times[i] for i in range(len(times) - 1)])
+#         start_time.extend(times[:-1])
+
+#     import pandas as pd
+
+#     df = pd.DataFrame({"cmds": cmds, "duration": durations, "start_time": start_time})
+#     df.to_csv(f"multiprocess_async_playwright_{os.getpid()}.csv", index=False)

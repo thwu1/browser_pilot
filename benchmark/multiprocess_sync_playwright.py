@@ -1,17 +1,26 @@
 import time
-
+import os
+import pandas as pd
 from playwright.sync_api import sync_playwright
 
-playwright = sync_playwright().start()
+# playwright = sync_playwright().start()
 
-# Launch browser with appropriate options
-browser_type = playwright.chromium
-browser = browser_type.launch(headless=True)
+# # Launch browser with appropriate options
+# browser_type = playwright.chromium
+# browser = browser_type.launch(headless=True)
 
 timeout = 30000
 
+def setup():
+    playwright = sync_playwright().start()
 
-def create_context(context_options={}):
+    # Launch browser with appropriate options
+    browser_type = playwright.chromium
+    browser = browser_type.launch(headless=True)
+
+    return browser, playwright
+
+def create_context(context_options={}, browser=None):
     # Create browser context with provided options
     options = context_options or {}
 
@@ -72,27 +81,75 @@ def get_observation(page, observation_type="html"):
     else:
         raise ValueError(f"Unknown observation type: {observation_type}")
 
+def single_traj(browser):
+    times = [time.time()]
+    cmds = ["create_context"]
+    context = create_context(browser=browser)
 
-if __name__ == "__main__":
-    start_time = time.time()
-    context = create_context()
+    times.append(time.time())
+    cmds.append("navigate")
     page = navigate(context, None, "https://www.youtube.com")
+
+    times.append(time.time())
+    cmds.append("get_observation")
     observation = get_observation(page)
 
+    times.append(time.time())
+    cmds.append("navigate")
     page = navigate(context, page, "https://www.bilibili.com")
+
+    times.append(time.time())
+    cmds.append("get_observation")
     observation = get_observation(page)
 
-    # page = navigate(context, page, "https://www.nytimes.com")
-    # observation = get_observation(page)
-
+    times.append(time.time())
+    cmds.append("navigate")
     page = navigate(context, page, "https://www.reddit.com")
+
+    times.append(time.time())
+    cmds.append("get_observation")
     observation = get_observation(page)
 
+    times.append(time.time())
+    cmds.append("navigate")
     page = navigate(context, page, "https://www.amazon.com")
+
+    times.append(time.time())
+    cmds.append("get_observation")
     observation = get_observation(page)
 
-    end_time = time.time()
+    times.append(time.time())
+    cmds.append("close_context")
+    context.close()
+    times.append(time.time())
 
-    print(f"Time taken: {end_time - start_time} seconds")
+    return times, cmds
 
-    # print(observation)
+def test_sync_playwright(*args):
+
+    time_ = time.time()
+    browser, playwright = setup()
+    times, cmds = single_traj(browser)
+    print(f"Time taken: {time.time() - time_}")
+    durations = [times[i + 1] - times[i] for i in range(len(times) - 1)]
+    start_time = times[:-1]
+    assert len(durations) == len(start_time)
+
+    df = pd.DataFrame({"cmds": cmds, "duration": durations, "start_time": start_time})
+    browser.close()
+    playwright.stop()
+    return df
+
+
+# if __name__ == "__main__":
+#     time_ = time.time()
+#     times, cmds = single_traj()
+#     print(f"Time taken: {time.time() - time_}")
+#     durations = [times[i + 1] - times[i] for i in range(len(times) - 1)]
+#     start_time = times[:-1]
+#     assert len(durations) == len(start_time)
+#     import pandas as pd
+
+
+#     df = pd.DataFrame({"cmds": cmds, "duration": durations, "start_time": start_time})
+#     df.to_csv(f"multiprocess_async_playwright_{os.getpid()}.csv", index=False)
