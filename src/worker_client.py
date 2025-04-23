@@ -49,7 +49,7 @@ class WorkerClient:
 
         self.output_queue = queue.Queue()
 
-        self.zmq_context = zmq.Context()
+        self.zmq_context = zmq.Context(io_threads=1)
         self.input_socket = make_zmq_socket(
             self.zmq_context, self.input_path, zmq.ROUTER, bind=True
         )
@@ -98,8 +98,8 @@ class WorkerClient:
             logger.info(f"All workers {self.num_workers} are ready")
 
     def send(self, msg: List[Dict[str, Any]], index: int):
-        with Timer("_send", log_file="timer_client_send.log"):
-            self._send(msg, index)
+        # with Timer("_send", log_file="timer_client_send.log"):
+        self._send(msg, index)
 
     async def get_output_with_task_id(self, task_id, timeout: float = 20):
         """For testing only"""

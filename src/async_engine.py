@@ -11,7 +11,6 @@ from timer_util import Timer
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-# logger.addHandler(logging.FileHandler("async_engine.log"))
 
 
 class AsyncBrowserEngine(BrowserEngine):
@@ -61,28 +60,28 @@ class AsyncBrowserEngine(BrowserEngine):
 
                 worker_status = self.worker_client.get_worker_status_no_wait()
 
-                with Timer(
-                    "Scheduler.schedule", log_file="timer_scheduler.log"
-                ):  # Monitor scheduler timing
-                    scheduled_tasks, scheduler_output = self.scheduler.schedule(
-                        tasks, prev_workers, self.n_workers, worker_status
-                    )
+                # with Timer(
+                #     "Scheduler.schedule", log_file="timer_scheduler.log"
+                # ):  # Monitor scheduler timing
+                scheduled_tasks, scheduler_output = self.scheduler.schedule(
+                    tasks, prev_workers, self.n_workers, worker_status
+                )
                 logger.debug(f"scheduled_tasks: {scheduled_tasks}")
                 logger.debug(f"scheduler_output: {scheduler_output}")
 
-                with Timer(
-                    "_execute_scheduler_output",
-                    log_file="timer_execute_scheduler_output.log",
-                ):
-                    await self._execute_scheduler_output(
+                # with Timer(
+                #     "_execute_scheduler_output",
+                #     log_file="timer_execute_scheduler_output.log",
+                # ):
+                await self._execute_scheduler_output(
                         scheduled_tasks, scheduler_output
                     )
 
-                with Timer(
-                    "_update_task_tracker_with_scheduler_output",
-                    log_file="timer_update_task_tracker_with_scheduler_output.log",
-                ):
-                    self._update_task_tracker_with_scheduler_output(
+                # with Timer(
+                #     "_update_task_tracker_with_scheduler_output",
+                #     log_file="timer_update_task_tracker_with_scheduler_output.log",
+                # ):
+                self._update_task_tracker_with_scheduler_output(
                         scheduled_tasks, scheduler_output
                     )
 
@@ -128,26 +127,26 @@ class AsyncBrowserEngine(BrowserEngine):
             await asyncio.sleep(0)
             return
 
-        with Timer(
-            "_process_output_and_update_tracker",
-            log_file="timer_process_output_and_update_tracker.log",
-        ):
-            output_queue_len = min(output_queue_len, 128)
-            # for _ in range(output_queue_len):
-            while self.worker_client.get_output_queue_len() > 0:
-                idx, msg = self.worker_client.get_output_nowait()
-                logger.debug(f"received task {msg['task_id']} from worker {idx}")
-                if not msg["result"]["success"]:
-                    logger.warning(f"task {msg['task_id']} failed")
-                assert "task_id" in msg
-                task_id = msg["task_id"]
-                assert task_id not in self.output_dict
-                self.output_dict[task_id] = msg
-                self.task_tracker[task_id]["status"] = "finished"
-                task_future = self.task_id_to_future[task_id]
-                # logger.debug(f"********* {msg}")
-                msg["profile"]["engine_set_future_timestamp"] = time.time()
-                task_future.set_result(msg)
-                del self.task_id_to_future[task_id]
-                logger.debug(f"updated task {task_id} status to finished")
-            await asyncio.sleep(0)
+        # with Timer(
+        #     "_process_output_and_update_tracker",
+        #     log_file="timer_process_output_and_update_tracker.log",
+        # ):
+        output_queue_len = min(output_queue_len, 128)
+        # for _ in range(output_queue_len):
+        while self.worker_client.get_output_queue_len() > 0:
+            idx, msg = self.worker_client.get_output_nowait()
+            logger.debug(f"received task {msg['task_id']} from worker {idx}")
+            if not msg["result"]["success"]:
+                logger.warning(f"task {msg['task_id']} failed")
+            assert "task_id" in msg
+            task_id = msg["task_id"]
+            assert task_id not in self.output_dict
+            self.output_dict[task_id] = msg
+            self.task_tracker[task_id]["status"] = "finished"
+            task_future = self.task_id_to_future[task_id]
+            # logger.debug(f"********* {msg}")
+            msg["profile"]["engine_set_future_timestamp"] = time.time()
+            task_future.set_result(msg)
+            del self.task_id_to_future[task_id]
+            logger.debug(f"updated task {task_id} status to finished")
+        await asyncio.sleep(0)
