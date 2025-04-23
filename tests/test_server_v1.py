@@ -540,7 +540,7 @@ if __name__ == "__main__":
     # Use uvloop for faster event loop
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-    print(f"Running with 256 concurrent requests, optimized for speed...")
+    print(f"Running with 24 concurrent requests, optimized for speed...")
     start_time = time.time()
     outputs, cmds = asyncio.run(test_navigate_concurrent_async(24, batch_size=8))
     end_time = time.time()

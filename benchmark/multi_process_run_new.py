@@ -9,6 +9,7 @@ import time
 from multiprocess_async_playwright import test_async_playwright
 from multiprocess_sync_playwright import test_sync_playwright
 from benchmark_server_v1 import test_server_v1
+from benchmark_server_v2 import test_server_v2
 import pandas as pd
 
 
@@ -35,9 +36,14 @@ if __name__ == "__main__":
     elif args.method == "sync":
         with ProcessPoolExecutor(num_proc) as executor:
             dfs = list(executor.map(test_sync_playwright, [None]*size))
-    elif args.method == "server":
+    elif args.method == "server_v1":
         with ProcessPoolExecutor(num_proc) as executor:
             dfs = list(executor.map(test_server_v1, [size//num_proc]*num_proc))
+    elif args.method == "server_v2":
+        with ProcessPoolExecutor(num_proc) as executor:
+            dfs = list(executor.map(test_server_v2, [size//num_proc]*num_proc))
+    else:
+        raise ValueError(f"Unknown method: {args.method}")
     
     end = time.time()
     print(f"Total time: {end - start:.2f} seconds")
