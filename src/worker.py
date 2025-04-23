@@ -650,6 +650,9 @@ class AsyncBrowserWorker:
                         del context_info.pages[page_id]
                         break
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
+            elif command == "close_context":
+                await self._close_context(context_id)
+                result = {"success": True, "context_id": context_id}
 
             elif command == "browser_screenshot":
                 page, page_id = await self._get_page(context_id, params.get("page_id"))
@@ -726,6 +729,14 @@ class AsyncBrowserWorker:
             if "Target closed" in str(e) or "Session closed" in str(e):
                 context_info.state = ContextState.FAILED
             raise
+    
+    async def _close_context(self, context_id: str):
+        context_info = self.contexts.get(context_id)
+        if context_info is None:
+            raise ValueError(f"Context {context_id} not found")
+        await context_info.browser_context.close()
+        self.num_pages -= len(context_info.pages)
+        self.contexts.pop(context_id)
 
     async def _close_page(self, page: Page):
         await page.close()
@@ -901,7 +912,7 @@ class AsyncBrowserWorkerProc:
         self.report_cpu_and_memory = report_cpu_and_memory
         logger.info(f"Initializing AsyncBrowserWorkerProc {index}")
 
-        self.ctx = zmq.asyncio.Context()
+        self.ctx = zmq.asyncio.Context(io_threads=1)
         self.input_socket = make_zmq_socket(
             self.ctx,
             self.input_path,
