@@ -141,14 +141,14 @@ class WorkerClient:
         )
 
     def _recv(self):
-        try:
-            msg = self.output_socket.recv_multipart(flags=zmq.NOBLOCK)
-            assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
-            index = int(msg[0])
-            msg_type = msg[1]
-            return index, msg_type, self.decoder(msg[2])
-        except zmq.Again:
-            return None, None, None
+        # try:
+        msg = self.output_socket.recv_multipart()
+        assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
+        index = int(msg[0])
+        msg_type = msg[1]
+        return index, msg_type, self.decoder(msg[2])
+        # except zmq.Again:
+        #     return None, None, None
 
     def _recv_thread(self):
         while self._recv_thread_running:
