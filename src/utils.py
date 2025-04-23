@@ -13,6 +13,9 @@ class MsgType(bytes, Enum):
     READY = b"R"
     STATUS = b"S"
     OUTPUT = b"O"
+    TASK = b"T"
+    REPLY = b"P"
+    # BATCH = b"B"
 
 
 # Adapted from: https://github.com/sgl-project/sglang/blob/v0.4.1/python/sglang/srt/utils.py#L783 # noqa: E501

@@ -16,24 +16,40 @@ from async_engine import AsyncBrowserEngine
 from engine import BrowserEngineConfig
 from scheduler import SchedulerType
 from worker import BrowserWorkerTask
+import multiprocessing  as mp
+import zmq
+import zmq.asyncio
+from utils import make_zmq_socket
+from utils import MsgpackDecoder, MsgpackEncoder, MsgType
 
 # Configure logging
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
+    handlers=[logging.StreamHandler(), logging.FileHandler("server_v2.log")],
 )
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 # Global engine instance and shutdown flag
 engine = None
 should_exit = False
 
+ctx = None
+sockets = None
+encoder = MsgpackEncoder()
+decoder = MsgpackDecoder()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Startup: initialize the engine
     await start()
+    global ctx, sockets
+    ctx = zmq.asyncio.Context(io_threads=1)
+    sockets = asyncio.Queue()
+    for _ in range(64):
+        sockets.put_nowait(make_zmq_socket(ctx, "ipc://app_to_engine.sock", zmq.DEALER, bind=False, identity=str(uuid.uuid4().hex[:8]).encode()))
+    logger.info(f"Created {64} sockets for engine")
     try:
         yield
     except asyncio.CancelledError:
@@ -48,20 +64,6 @@ app = FastAPI(
     description="API for browser automation",
     lifespan=lifespan,
 )
-
-# Engine configuration
-DEFAULT_CONFIG = {
-    "worker_client_config": {
-        "input_path": "ipc://input_fastapi.sock",
-        "output_path": "ipc://output_fastapi.sock",
-        "num_workers": 32,
-    },
-    "scheduler_config": {
-        "type": SchedulerType.ROUND_ROBIN,
-        "max_batch_size": 128,
-        "n_workers": 32,
-    },
-}
 
 
 # API Models
@@ -91,15 +93,13 @@ async def start(config: Dict[str, Any] = None):
         return
 
     # Use provided config or default
-    engine_config = config or DEFAULT_CONFIG
+    # engine_config = config or DEFAULT_CONFIG
+    # # engine_config = BrowserEngineConfig(**engine_config)
 
-    # Create and start the engine
-    logger.info("Creating new AsyncBrowserEngine instance")
-    engine = AsyncBrowserEngine(BrowserEngineConfig(**engine_config))
-
-    # Start the engine core loop as a background task with a name
-    logger.info("Starting engine core loop")
-    core_loop = asyncio.create_task(engine.engine_core_loop(), name="engine_core_loop")
+    # # Create and start the engine
+    # logger.info("Creating new AsyncBrowserEngine instance")
+    # engine = mp.Process(target=AsyncBrowserEngine.spin_up_engine, args=(engine_config,))
+    # engine.start()
 
     # Wait a bit for the engine to initialize
     await asyncio.sleep(1)
@@ -118,23 +118,7 @@ async def stop():
         logger.info("Shutting down AsyncBrowserEngine...")
 
         # Stop the engine
-        await engine._shutdown()
-
-        # Cancel engine core loop task if it exists
-        loop = asyncio.get_running_loop()
-        engine_tasks = [
-            t
-            for t in asyncio.all_tasks(loop)
-            if t.get_name().startswith("engine_core_loop")
-        ]
-
-        for task in engine_tasks:
-            logger.info("Cancelling engine core loop...")
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        engine.kill()
 
         # Clear engine reference
         engine = None
@@ -194,24 +178,32 @@ def signal_handler(signame, loop):
 async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
     """Send a task and wait for its result"""
     # Log the task creation
+    global sockets
+
     initial_time = time.time()
     task_id = f"{uuid.uuid4().hex[:8]}"
     logger.info(
         f"Created task {task_id} with send_and_wait, waiting for result (timeout: {timeout}s)"
     )
 
-    task_future = await engine.add_task(
-        BrowserWorkerTask(
-            task_id=task_id,
-            command=task_request.command,
-            context_id=task_request.context_id,
-            page_id=task_request.page_id,
-            params=task_request.params,
-        )
+    socket = await sockets.get()
+    task = BrowserWorkerTask(
+        task_id=task_id,
+        command=task_request.command,
+        context_id=task_request.context_id,
+        page_id=task_request.page_id,
+        params=task_request.params,
     )
+    task_bytes = encoder(task.to_dict())
+    logger.info(f"Sending task {task_id} to engine")
+    await socket.send_multipart([MsgType.TASK, task_bytes])
+    logger.info(f"Task {task_id} sent to engine")
 
     try:
-        result = await asyncio.wait_for(task_future, timeout=timeout)
+        result_bytes = await asyncio.wait_for(socket.recv_multipart(), timeout=timeout)
+        result = decoder(result_bytes[1])
+        await sockets.put(socket)
+        socket = None
         final_time = time.time()
         result["profile"]["app_init_timestamp"] = initial_time
         result["profile"]["app_recv_timestamp"] = final_time
@@ -220,59 +212,55 @@ async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
         raise HTTPException(status_code=408, detail="Task timed out")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        if socket:
+            await sockets.put(socket)
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    global engine
+# @app.get("/health")
+# async def health_check():
+#     """Health check endpoint"""
+#     global engine
 
-    if engine is None:
-        return {"status": "down", "message": "Engine is not running"}
+#     if engine is None:
+#         return {"status": "down", "message": "Engine is not running"}
 
-    return {
-        "status": "up",
-        "tasks": {
-            "pending": engine.waiting_queue.qsize(),
-            "completed": len(engine.output_dict),
-        },
-        "contexts": len(engine.context_tracker),
-    }
+#     return {
+#         "status": "up",
+#         "tasks": {
+#             "pending": engine.waiting_queue.qsize(),
+#             "completed": len(engine.output_dict),
+#         },
+#         "contexts": len(engine.context_tracker),
+#     }
 
 
 if __name__ == "__main__":
-    # Get the event loop
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    import uvicorn
+    import uvloop
+    from uvicorn.config import LOGGING_CONFIG
 
-    # Setup signal handlers
-    for signame in ("SIGINT", "SIGTERM"):
-        loop.add_signal_handler(
-            getattr(signal, signame), partial(signal_handler, signame, loop)
-        )
+    # Use uvloop for a faster event loop
+    # uvloop.install()
 
-    # Configure and run uvicorn with modified server settings
-    config = uvicorn.Config(
-        app=app,
+    # # Ensure we have a file handler in the Uvicorn logging config
+    # LOGGING_CONFIG.setdefault("handlers", {}).update({
+    #     "file": {
+    #         "class": "logging.FileHandler",
+    #         "formatter": "default",
+    #         "filename": "server_v2.log",
+    #     }
+    # })
+    # LOGGING_CONFIG.setdefault("root", {"handlers": [], "level": "INFO"})
+    # if "file" not in LOGGING_CONFIG["root"].get("handlers", []):
+    #     LOGGING_CONFIG["root"]["handlers"].append("file")
+
+    # Start the FastAPI app via Uvicorn
+    uvicorn.run(
+        "src.entrypoint.server_v2:app",
         host="0.0.0.0",
         port=9999,
-        loop=loop,
-        log_level="info",
-        timeout_keep_alive=30,
-        timeout_graceful_shutdown=30,
+        log_level="debug",
+        # log_config=LOGGING_CONFIG,
+        workers=4,
     )
-    server = uvicorn.Server(config)
-
-    try:
-        # Run the server
-        loop.run_until_complete(server.serve())
-    except asyncio.CancelledError:
-        logger.info("Server loop cancelled")
-        pass
-    except Exception as e:
-        logger.error(f"Server error: {e}")
-    finally:
-        # Let uvicorn handle its own shutdown
-        loop.run_until_complete(shutdown("SERVER_STOP"))
-        loop.close()

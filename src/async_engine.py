@@ -8,6 +8,11 @@ from typing import Dict, List
 from engine import BrowserEngine, BrowserEngineConfig, BrowserWorkerTask
 from scheduler import SchedulerOutput
 from timer_util import Timer
+import zmq
+from utils import make_zmq_socket, MsgpackDecoder, MsgpackEncoder, MsgType
+
+import traceback
+import uvloop
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -17,7 +22,15 @@ class AsyncBrowserEngine(BrowserEngine):
     def __init__(self, config: BrowserEngineConfig):
         super().__init__(config)
         self.waiting_queue = asyncio.Queue()
-        self.task_id_to_future: Dict[str, asyncio.Future] = {}
+        # self.task_id_to_future: Dict[str, asyncio.Future] = {}
+        self.task_id_to_identity = {}
+        self.zmq = zmq.asyncio.Context(io_threads=1)
+        self.socket = make_zmq_socket(
+            self.zmq, "ipc://app_to_engine.sock", zmq.ROUTER, bind=True
+        )
+
+        self.encoder = MsgpackEncoder()
+        self.decoder = MsgpackDecoder()
 
     async def add_task(self, task: BrowserWorkerTask):
         if not task.context_id:
@@ -32,12 +45,36 @@ class AsyncBrowserEngine(BrowserEngine):
         await self.waiting_queue.put(task)
         logger.info(f"added task {task.task_id} to waiting queue")
 
-        self.task_id_to_future[task.task_id] = asyncio.Future()
-        return self.task_id_to_future[task.task_id]
+        # self.task_id_to_future[task.task_id] = asyncio.Future()
+        # return self.task_id_to_future[task.task_id]
 
     async def add_batch_tasks(self, tasks: List[BrowserWorkerTask]):
         futures = [self.add_task(task) for task in tasks]
         return await asyncio.gather(*futures)
+
+    async def _recv(self):
+        msg = await self.socket.recv_multipart()
+        assert len(msg) == 3
+        identity = msg[0]
+        msg_type = msg[1]
+        return identity, msg_type, self.decoder(msg[2])
+
+    async def _send(self, msg, identity, msg_type):
+        await self.socket.send_multipart([identity, msg_type, self.encoder(msg)])
+
+    async def process_incoming(self):
+        while self._running:
+            identity, msg_type, msg = await self._recv()
+            if msg_type == MsgType.TASK:
+                task = BrowserWorkerTask(**msg)
+                task_id = task.task_id
+                self.task_id_to_identity[task_id] = identity
+                await self.add_task(task)
+            else:
+                raise ValueError(f"Unknown message type: {msg_type}")
+
+    # async def process_outgoing(self):
+    #     while self._running:
 
     async def engine_core_loop(self):
         """Main engine loop that processes tasks and manages workers"""
@@ -73,17 +110,15 @@ class AsyncBrowserEngine(BrowserEngine):
                 #     "_execute_scheduler_output",
                 #     log_file="timer_execute_scheduler_output.log",
                 # ):
-                await self._execute_scheduler_output(
-                        scheduled_tasks, scheduler_output
-                    )
+                await self._execute_scheduler_output(scheduled_tasks, scheduler_output)
 
                 # with Timer(
                 #     "_update_task_tracker_with_scheduler_output",
                 #     log_file="timer_update_task_tracker_with_scheduler_output.log",
                 # ):
                 self._update_task_tracker_with_scheduler_output(
-                        scheduled_tasks, scheduler_output
-                    )
+                    scheduled_tasks, scheduler_output
+                )
 
                 await self._process_output_and_update_tracker()
 
@@ -93,6 +128,26 @@ class AsyncBrowserEngine(BrowserEngine):
         finally:
             logger.info("Received shutdown signal, call engine shutdown")
             await self._shutdown()
+
+    @classmethod
+    def spin_up_engine(cls, config: Dict):
+        engine = cls(BrowserEngineConfig(**config))
+
+        async def run():
+            # asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+            tasks = [
+                engine.engine_core_loop(),
+                engine.process_incoming(),
+            ]
+            await asyncio.gather(*tasks)
+
+        try:
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+            asyncio.run(run())
+        except Exception as e:
+            logger.error(f"Fatal error in engine: {e}, {traceback.format_exc()}")
+        finally:
+            engine._shutdown()
 
     async def _shutdown(self):
         logger.info("Shutting down engine")
@@ -143,10 +198,8 @@ class AsyncBrowserEngine(BrowserEngine):
             assert task_id not in self.output_dict
             self.output_dict[task_id] = msg
             self.task_tracker[task_id]["status"] = "finished"
-            task_future = self.task_id_to_future[task_id]
-            # logger.debug(f"********* {msg}")
             msg["profile"]["engine_set_future_timestamp"] = time.time()
-            task_future.set_result(msg)
-            del self.task_id_to_future[task_id]
+            await self._send(msg, self.task_id_to_identity[task_id], MsgType.REPLY)
+            self.task_id_to_identity.pop(task_id)
             logger.debug(f"updated task {task_id} status to finished")
         await asyncio.sleep(0)
