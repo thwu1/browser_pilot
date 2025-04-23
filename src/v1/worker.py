@@ -25,7 +25,6 @@ from playwright.async_api import (Browser, BrowserContext, Page,
 from type.task_type import BrowserWorkerTask
 from type.worker_type import WorkerStatus
 from utils import (JsonDecoder, JsonEncoder, MsgpackDecoder, MsgpackEncoder,
-                   ZstdMsgpackDecoder, ZstdMsgpackEncoder,
                    MsgType, make_zmq_socket)
 
 # Configure logging
