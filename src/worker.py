@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import uvloop
 import zmq
 import zmq.asyncio
 from playwright.async_api import (Browser, BrowserContext, Page,
@@ -23,11 +24,12 @@ from playwright.async_api import (Browser, BrowserContext, Page,
 
 from type.task_type import BrowserWorkerTask
 from type.worker_type import WorkerStatus
-from utils import JsonDecoder, JsonEncoder, MsgType, make_zmq_socket
+from utils import (JsonDecoder, JsonEncoder, MsgpackDecoder, MsgpackEncoder,
+                   MsgType, make_zmq_socket)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(), logging.FileHandler("worker.log")],
 )
@@ -230,46 +232,6 @@ class AsyncBrowserWorker:
         finally:
             self.num_running_tasks -= 1
 
-    # async def stop(self):
-    #     """Stop the browser worker and cleanup resources"""
-    #     if not self.running:
-    #         return
-
-    #     logger.info(f"Stopping BrowserWorker {self.worker_id}")
-    #     self.running = False
-
-    #     # Cancel the task processor
-    #     if self._task_processor:
-    #         self._task_processor.cancel()
-    #         try:
-    #             await self._task_processor
-    #         except asyncio.CancelledError:
-    #             pass
-
-    #     # Terminate all remaining contexts
-    #     for context_id in list(self.contexts.keys()):
-    #         try:
-    #             await self.terminate_context(context_id)
-    #         except Exception as e:
-    #             logger.error(f"Error terminating context {context_id}: {e}")
-
-    #     # Close browser and stop playwright
-    #     if self.browser:
-    #         try:
-    #             await self.browser.close()
-    #         except Exception as e:
-    #             logger.error(f"Error closing browser: {e}")
-
-    #     if self.playwright:
-    #         try:
-    #             await self.playwright.stop()
-    #         except Exception as e:
-    #             logger.error(f"Error stopping playwright: {e}")
-
-    #     self.browser = None
-    #     self.playwright = None
-    #     logger.info(f"BrowserWorker {self.worker_id} stopped")
-
     async def create_context(
         self, context_id: str, context_options: Dict[str, Any] = None
     ) -> str:
@@ -411,102 +373,6 @@ class AsyncBrowserWorker:
 
         loop.close()
 
-    # async def hibernate_context(self, context_id: str) -> Dict[str, Any]:
-    #     """
-    #     Hibernate a browser context by saving its state and closing it
-
-    #     Args:
-    #         context_id: ID of the context to hibernate
-
-    #     Returns:
-    #         Dictionary containing hibernation state data
-    #     """
-    #     if context_id not in self.contexts:
-    #         raise ValueError(f"Context {context_id} not found")
-
-    #     context_info = self.contexts[context_id]
-
-    #     if context_info.state not in (ContextState.ACTIVE, ContextState.IDLE):
-    #         raise ValueError(f"Cannot hibernate context in state {context_info.state}")
-
-    #     try:
-    #         # Collect state data (cookies, storage, etc.)
-    #         # In a real implementation, this would capture more state
-    #         cookies = await context_info.browser_context.cookies()
-    #         storage_state = await context_info.browser_context.storage_state()
-
-    #         hibernation_data = {
-    #             "cookies": cookies,
-    #             "storage_state": storage_state,
-    #             "timestamp": time.time()
-    #         }
-
-    #         # Close the browser context
-    #         await context_info.browser_context.close()
-
-    #         # Update context info
-    #         context_info.browser_context = None
-    #         context_info.hibernation_data = hibernation_data
-    #         context_info.state = ContextState.HIBERNATED
-
-    #         logger.info(f"Hibernated browser context {context_id}")
-    #         return hibernation_data
-    #     except Exception as e:
-    #         logger.error(f"Failed to hibernate context {context_id}: {e}")
-    #         context_info.state = ContextState.FAILED
-    #         raise
-
-    # async def reactivate_context(self, context_id: str, hibernation_data: Dict[str, Any] = None) -> bool:
-    #     """
-    #     Reactivate a hibernated browser context
-
-    #     Args:
-    #         context_id: ID of the context to reactivate
-    #         hibernation_data: Optional hibernation data if not stored in context_info
-
-    #     Returns:
-    #         True if reactivation was successful
-    #     """
-    #     if context_id not in self.contexts:
-    #         raise ValueError(f"Context {context_id} not found")
-
-    #     context_info = self.contexts[context_id]
-
-    #     if context_info.state != ContextState.HIBERNATED:
-    #         raise ValueError(f"Cannot reactivate context in state {context_info.state}")
-
-    #     # Use provided hibernation data or data from context_info
-    #     data = hibernation_data or context_info.hibernation_data
-    #     if not data:
-    #         raise ValueError("No hibernation data available")
-
-    #     try:
-    #         # Create a new browser context
-    #         browser_context = await self.browser.new_context()
-
-    #         # Restore state from hibernation data
-    #         if "storage_state" in data:
-    #             await browser_context.add_cookies(data.get("cookies", []))
-
-    #             # Additional state restoration would go here
-    #             # This is a simplified implementation
-
-    #         # Update context info
-    #         context_info.browser_context = browser_context
-    #         context_info.state = ContextState.ACTIVE
-    #         context_info.last_activity_time = time.time()
-    #         context_info.hibernation_data = None  # Clear hibernation data
-
-    #         # Reset pages dictionary since we need new page objects
-    #         context_info.pages = {}
-
-    #         logger.info(f"Reactivated browser context {context_id}")
-    #         return True
-    #     except Exception as e:
-    #         logger.error(f"Failed to reactivate context {context_id}: {e}")
-    #         context_info.state = ContextState.FAILED
-    #         raise
-
     async def execute_command(
         self, context_id: str, page_id: str, command: str, params: Dict[str, Any] = None
     ) -> Dict[str, Any]:
@@ -567,7 +433,7 @@ class AsyncBrowserWorker:
                 timeout = params.get("timeout", 2000)
                 await page.goto(params["url"], wait_until=wait_until, timeout=timeout)
                 # Add a small safety delay for the page to stabilize
-                await asyncio.sleep(0.1)
+                # await asyncio.sleep(0.1)
                 result = {
                     "success": True,
                     "url": page.url,
@@ -1048,8 +914,8 @@ class AsyncBrowserWorkerProc:
         )
 
         self.worker = AsyncBrowserWorker(index)
-        self.encoder = JsonEncoder()
-        self.decoder = JsonDecoder()
+        self.encoder = MsgpackEncoder()
+        self.decoder = MsgpackDecoder()
 
     async def _send_ready(self):
         assert self.worker.is_ready()
@@ -1082,11 +948,12 @@ class AsyncBrowserWorkerProc:
                 worker.process_task_queue_loop(),
                 proc.process_incoming_socket_loop(),
                 proc.process_outgoing_socket_loop(),
-                proc.send_heartbeat_loop(),
+                # proc.send_heartbeat_loop(),
             ]
             await asyncio.gather(*tasks)
 
         try:
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
             asyncio.run(main_loop())
         except Exception as e:
             logger.error(f"Fatal error in worker: {e}, {traceback.format_exc()}")
@@ -1111,10 +978,10 @@ class AsyncBrowserWorkerProc:
                 tasks = await self._recv()
                 assert len(tasks) > 0, "Received empty tasks, this should not happen"
 
-                recv_time = time.time()
+                # recv_time = time.time()
                 for task in tasks:
-                    task = BrowserWorkerTask.model_validate(task)
-                    task.worker_recv_timestamp = recv_time
+                    task = BrowserWorkerTask(**task)
+                    task.worker_recv_timestamp = time.time()
                     self.worker.input_queue.put_nowait(task)
                 logger.debug(
                     f"Received {len(tasks)} tasks from client, input queue size: {self.worker.input_queue.qsize()}, output queue size: {self.worker.output_queue.qsize()}"
@@ -1125,13 +992,13 @@ class AsyncBrowserWorkerProc:
     async def process_outgoing_socket_loop(self):
         while self.worker.running:
             output = await self.worker.output_queue.get()
-            send_time = time.time()
-            output["profile"]["worker_send_timestamp"] = send_time
+            # send_time = time.time()
+            output["profile"]["worker_send_timestamp"] = time.time()
 
             outputs = [output]
             while not self.worker.output_queue.empty():
                 output = self.worker.output_queue.get_nowait()
-                output["profile"]["worker_send_timestamp"] = send_time
+                output["profile"]["worker_send_timestamp"] = time.time()
                 outputs.append(output)
 
             assert len(outputs) > 0, "No outputs to send, this should not happen"

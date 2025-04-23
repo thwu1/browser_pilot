@@ -18,11 +18,13 @@ from typing import Any, Dict, List, Optional
 import zmq
 import zmq.asyncio
 
-from utils import JsonDecoder, JsonEncoder, MsgType, make_zmq_socket
+from timer_util import Timer
+from utils import (JsonDecoder, JsonEncoder, MsgpackDecoder, MsgpackEncoder,
+                   MsgType, make_zmq_socket)
 from worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format="%(asctime)s - %(processName)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
@@ -54,8 +56,8 @@ class WorkerClient:
         self.output_socket = make_zmq_socket(
             self.zmq_context, self.output_path, zmq.PULL, bind=True
         )
-        self.encoder = JsonEncoder()
-        self.decoder = JsonDecoder()
+        self.encoder = MsgpackEncoder()
+        self.decoder = MsgpackDecoder()
 
         self.worker_status = {worker_id: {} for worker_id in range(num_workers)}
 
@@ -96,7 +98,8 @@ class WorkerClient:
             logger.info(f"All workers {self.num_workers} are ready")
 
     def send(self, msg: List[Dict[str, Any]], index: int):
-        self._send(msg, index)
+        with Timer("_send", log_file="timer_client_send.log"):
+            self._send(msg, index)
 
     async def get_output_with_task_id(self, task_id, timeout: float = 20):
         """For testing only"""

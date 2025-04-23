@@ -1,5 +1,7 @@
+import asyncio
 import concurrent.futures
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -8,10 +10,12 @@ import time
 import uuid
 from urllib.parse import urljoin
 
+import httpx
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 import requests
+import uvloop
 
 # Server configuration
 SERVER_HOST = "localhost"
@@ -52,13 +56,190 @@ def start_server():
         server_process.kill()
 
 
+async def create_context_async(client=None):
+    if client is None:
+        async with httpx.AsyncClient(timeout=60) as temp_client:
+            return await _create_context_async(temp_client)
+    else:
+        return await _create_context_async(client)
+
+
+async def _create_context_async(client):
+    response = await client.post(
+        urljoin(BASE_URL, "send_and_wait"),
+        json={
+            "command": "create_context",
+            "context_id": f"context_{uuid.uuid4().hex[:8]}",
+        },
+    )
+    return response
+
+
+async def navigate_async(context_id, page_id, url, client=None):
+    if client is None:
+        async with httpx.AsyncClient(timeout=60) as temp_client:
+            return await _navigate_async(context_id, page_id, url, temp_client)
+    else:
+        return await _navigate_async(context_id, page_id, url, client)
+
+
+async def _navigate_async(context_id, page_id, url, client):
+    response = await client.post(
+        urljoin(BASE_URL, "send_and_wait"),
+        json={
+            "command": "browser_navigate",
+            "context_id": context_id,
+            "page_id": page_id,
+            "params": {"url": url, "timeout": 60000},
+        },
+    )
+    return response
+
+
+async def get_observation_async(context_id, page_id, observation_type, client=None):
+    if client is None:
+        async with httpx.AsyncClient(timeout=30) as temp_client:
+            return await _get_observation_async(
+                context_id, page_id, observation_type, temp_client
+            )
+    else:
+        return await _get_observation_async(
+            context_id, page_id, observation_type, client
+        )
+
+
+async def _get_observation_async(context_id, page_id, observation_type, client):
+    response = await client.post(
+        urljoin(BASE_URL, "send_and_wait"),
+        json={
+            "command": "browser_observation",
+            "context_id": context_id,
+            "page_id": page_id,
+            "params": {"observation_type": observation_type},
+        },
+    )
+    return response
+
+
+async def test_navigate_async(client=None):
+    use_shared_client = client is not None
+    if not use_shared_client:
+        # Create a dedicated client for this test
+        client = httpx.AsyncClient(
+            timeout=60.0,
+            limits=httpx.Limits(max_connections=32, max_keepalive_connections=32),
+        )
+
+    try:
+        responses = []
+        cmds = ["create_context"]
+        response = await create_context_async(client)
+        context_id = response.json()["result"]["result"]["context_id"]
+        responses.append(response.json())
+
+        cmds.append("navigate")
+        response = await navigate_async(
+            context_id, None, "https://www.youtube.com", client
+        )
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+        page_id = response.json()["result"]["page_id"]
+
+        cmds.append("get_observation")
+        response = await get_observation_async(context_id, page_id, "html", client)
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+
+        cmds.append("navigate")
+        response = await navigate_async(
+            context_id, page_id, "https://www.bilibili.com", client
+        )
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+
+        cmds.append("get_observation")
+        response = await get_observation_async(context_id, page_id, "html", client)
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+
+        cmds.append("navigate")
+        response = await navigate_async(
+            context_id, page_id, "https://www.reddit.com", client
+        )
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+
+        cmds.append("get_observation")
+        response = await get_observation_async(context_id, page_id, "html", client)
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+
+        cmds.append("navigate")
+        response = await navigate_async(
+            context_id, page_id, "https://www.amazon.com", client
+        )
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+
+        cmds.append("get_observation")
+        response = await get_observation_async(context_id, page_id, "html", client)
+        responses.append(response.json())
+        assert response.status_code == 200, response
+        assert response.json()["result"]["success"]
+
+        return responses, cmds
+    finally:
+        # Close the client if we created it
+        if not use_shared_client:
+            await client.aclose()
+
+
+async def test_navigate_concurrent_async(parallel=256, batch_size=256):
+    # Create a single shared client with a large connection pool
+    async with httpx.AsyncClient(
+        timeout=60.0,
+        limits=httpx.Limits(
+            max_connections=parallel, max_keepalive_connections=parallel
+        ),
+        http2=True,  # Enable HTTP/2 for better multiplexing if your server supports it
+    ) as client:
+        all_responses = []
+        all_cmds = []
+
+        # Process in batches to avoid overwhelming resources
+        for i in range(0, parallel, batch_size):
+            current_batch_size = min(batch_size, parallel - i)
+            print(
+                f"Processing batch {i//batch_size + 1}/{(parallel+batch_size-1)//batch_size}, size: {current_batch_size}"
+            )
+
+            # Create tasks for this batch
+            tasks = [test_navigate_async(client) for _ in range(current_batch_size)]
+
+            # Run this batch of tasks concurrently
+            batch_responses = await asyncio.gather(*tasks)
+
+            # Collect results
+            for response, cmds in batch_responses:
+                all_responses.extend(response)
+                all_cmds.extend(cmds)
+
+        return all_responses, all_cmds
+
+
 def create_context():
-    context_id = f"context_{uuid.uuid4().hex[:8]}"
     response = requests.post(
         urljoin(BASE_URL, "send_and_wait"),
         json={
             "command": "create_context",
-            "context_id": context_id,
+            "context_id": f"context_{uuid.uuid4().hex[:8]}",
         },
     )
     return response
@@ -71,7 +252,7 @@ def navigate(context_id, page_id, url):
             "command": "browser_navigate",
             "context_id": context_id,
             "page_id": page_id,
-            "params": {"url": url, "timeout": 30000},
+            "params": {"url": url, "timeout": 60000},
         },
     )
     return response
@@ -101,76 +282,69 @@ def test_navigate():
     responses = []
     response = create_context()
     responses.append(response.json())
-    # print("create_context response: ", response.json())
     context_id = response.json()["result"]["result"]["context_id"]
-    # print("create_context response: ", context_id)
     response = navigate(context_id, None, "https://www.youtube.com")
     responses.append(response.json())
-    # print("navigate response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
     page_id = response.json()["result"]["page_id"]
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
-    # print("get_observation response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
 
     response = navigate(context_id, page_id, "https://www.bilibili.com")
     responses.append(response.json())
-    # print("navigate response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
-    # print("get_observation response: ", response.json())
-    assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
-
-    response = navigate(context_id, page_id, "https://www.nytimes.com")
-    responses.append(response.json())
-    # print("navigate response: ", response.json())
-    assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
-
-    response = get_observation(context_id, page_id, "html")
-    responses.append(response.json())
-    # print("get_observation response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
 
     response = navigate(context_id, page_id, "https://www.reddit.com")
     responses.append(response.json())
-    # print("navigate response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
-    # print("get_observation response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
 
     response = navigate(context_id, page_id, "https://www.amazon.com")
     responses.append(response.json())
-    # print("navigate response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
-    # print("get_observation response: ", response.json())
     assert response.status_code == 200, response
     assert response.json()["result"]["success"]
 
     return responses
 
 
-def test_navigate_concurrent(parallel=32):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as executor:
-        futures = [executor.submit(test_navigate) for _ in range(parallel)]
+def test_navigate_threaded(threads=32):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
+        futures = [executor.submit(test_navigate) for _ in range(threads)]
+        all_responses = []
+        for future in futures:
+            responses = future.result()
+            all_responses.extend(responses)
+    return all_responses
+
+
+def test_navigate_concurrent(parallel=32, num_processes=8):
+    num_processes = min(num_processes, parallel)
+    num_threads = parallel // num_processes
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_processes) as executor:
+        futures = [
+            executor.submit(test_navigate_threaded, num_threads)
+            for _ in range(num_processes)
+        ]
         all_responses = []
         for future in futures:
             responses = future.result()
@@ -195,27 +369,40 @@ def check_profile_completed(output):
             return False
         if output["result"]["profile"]["worker_send_timestamp"] is None:
             return False
+        if output["result"]["profile"]["engine_set_future_timestamp"] is None:
+            return False
+        if output["result"]["profile"]["app_init_timestamp"] is None:
+            return False
+        if output["result"]["profile"]["app_recv_timestamp"] is None:
+            return False
     except KeyError as e:
         print(f"Missing key in output: {e}, output: {output}")
         return False
     return True
 
 
-def calculate_metrics(outputs):
+def calculate_metrics(outputs, cmds):
     df = pd.DataFrame(
         columns=[
+            "app_init",
             "engine_recv",
             "engine_send",
             "worker_recv",
             "worker_start",
             "worker_finish",
             "worker_send",
+            "engine_set_future",
+            "app_recv",
+            "cmds",
         ]
     )
     for output in outputs:
         if not check_profile_completed(output):
             print(output["result"]["profile"])
     try:
+        app_init = [
+            output["result"]["profile"]["app_init_timestamp"] for output in outputs
+        ]
         engine_recv = [
             output["result"]["profile"]["engine_recv_timestamp"] for output in outputs
         ]
@@ -235,37 +422,57 @@ def calculate_metrics(outputs):
         worker_send = [
             output["result"]["profile"]["worker_send_timestamp"] for output in outputs
         ]
+        engine_set_future = [
+            output["result"]["profile"]["engine_set_future_timestamp"]
+            for output in outputs
+        ]
+        app_recv = [
+            output["result"]["profile"]["app_recv_timestamp"] for output in outputs
+        ]
     except KeyError as e:
         print(f"Missing key in output: {e}, output: {outputs[0]}")
         return None
+
+    df["app_init"] = app_init
     df["engine_recv"] = engine_recv
     df["engine_send"] = engine_send
     df["worker_recv"] = worker_recv
     df["worker_start"] = worker_start
     df["worker_finish"] = worker_finish
     df["worker_send"] = worker_send
-    # df.to_csv("profile.csv", index=False)
+    df["engine_set_future"] = engine_set_future
+    df["app_recv"] = app_recv
+    print(len(df))
+    print(len(cmds))
+    df["cmds"] = cmds
     return df
 
 
 def summary(df):
     # Calculate time differences
+    df["app_to_engine"] = df["engine_recv"] - df["app_init"]
     df["schedule_time"] = df["engine_send"] - df["engine_recv"]
     df["send_communication_time"] = df["worker_recv"] - df["engine_send"]
     df["worker_input_queue_time"] = df["worker_start"] - df["worker_recv"]
     df["worker_process_time"] = df["worker_finish"] - df["worker_start"]
     df["worker_output_queue_time"] = df["worker_send"] - df["worker_finish"]
-    df["total_time"] = df["worker_send"] - df["engine_recv"]
+    df["recv_communication_time"] = df["engine_set_future"] - df["worker_send"]
+    df["engine_to_app"] = df["app_recv"] - df["engine_set_future"]
+    df["total_time"] = df["app_recv"] - df["app_init"]
 
     # Create bar plot
     time_columns = [
+        "app_to_engine",
         "schedule_time",
         "send_communication_time",
         "worker_input_queue_time",
         "worker_process_time",
         "worker_output_queue_time",
+        "recv_communication_time",
+        "engine_to_app",
     ]
     df[time_columns].mean().plot(kind="bar")
+
     plt.title("Average Time Distribution")
     plt.ylabel("Time (seconds)")
     plt.tight_layout()
@@ -279,17 +486,30 @@ def summary(df):
     for col, percentage in percentages.items():
         print(f"{col}: {percentage:.2f}%")
 
+    print(
+        "Total time calculated by summing individual tasks' time:",
+        df["total_time"].sum(),
+    )
+
     return df
 
 
 if __name__ == "__main__":
-    #     # Send a create context request
-    #     test_create_context()
-    parallel = 64
+    # Set higher ulimit for more open files (run this or a similar command in your shell)
+    # import resource
+    # resource.setrlimit(resource.RLIMIT_NOFILE, (10000, 10000))
+
+    # Disable excessive logging
+    # logging.basicConfig(level=logging.WARNING)
+
+    # Use uvloop for faster event loop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+    print(f"Running with 16 concurrent requests, optimized for speed...")
     start_time = time.time()
-    outputs = test_navigate_concurrent(parallel)
+    outputs, cmds = asyncio.run(test_navigate_concurrent_async(16, batch_size=16))
     end_time = time.time()
     print(f"Time taken: {end_time - start_time} seconds")
-    df = calculate_metrics(outputs)
-    df.to_csv(f"server_v1_{parallel}_profile.csv", index=False)
-    summary(df)
+    df = calculate_metrics(outputs, cmds)
+    df = summary(df)
+    df.to_csv(f"server_v1_{os.getpid()}.csv", index=False)

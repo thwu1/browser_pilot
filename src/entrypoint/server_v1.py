@@ -8,6 +8,7 @@ from functools import partial
 from typing import Any, Dict, Optional
 
 import uvicorn
+import uvloop
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -18,7 +19,7 @@ from worker import BrowserWorkerTask
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
@@ -53,12 +54,12 @@ DEFAULT_CONFIG = {
     "worker_client_config": {
         "input_path": "ipc://input_fastapi.sock",
         "output_path": "ipc://output_fastapi.sock",
-        "num_workers": 4,
+        "num_workers": 32,
     },
     "scheduler_config": {
         "type": SchedulerType.ROUND_ROBIN,
-        "max_batch_size": 10,
-        "n_workers": 4,
+        "max_batch_size": 128,
+        "n_workers": 32,
     },
 }
 
@@ -190,10 +191,11 @@ def signal_handler(signame, loop):
 
 
 @app.post("/send_and_wait", response_model=TaskStatusResponse)
-async def send_and_wait(task_request: TaskRequest, timeout: int = 30):
+async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
     """Send a task and wait for its result"""
     # Log the task creation
-    task_id = f"task_{uuid.uuid4().hex[:8]}"
+    initial_time = time.time()
+    task_id = f"{uuid.uuid4().hex[:8]}"
     logger.info(
         f"Created task {task_id} with send_and_wait, waiting for result (timeout: {timeout}s)"
     )
@@ -210,6 +212,9 @@ async def send_and_wait(task_request: TaskRequest, timeout: int = 30):
 
     try:
         result = await asyncio.wait_for(task_future, timeout=timeout)
+        final_time = time.time()
+        result["profile"]["app_init_timestamp"] = initial_time
+        result["profile"]["app_recv_timestamp"] = final_time
         return TaskStatusResponse(task_id=task_id, status="finished", result=result)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=408, detail="Task timed out")
@@ -237,6 +242,7 @@ async def health_check():
 
 if __name__ == "__main__":
     # Get the event loop
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 

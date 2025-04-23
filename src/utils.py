@@ -2,6 +2,7 @@ import json
 from enum import Enum
 from typing import Any, Optional, Union
 
+import msgpack
 import psutil
 import zmq
 import zmq.asyncio
@@ -68,3 +69,22 @@ class JsonEncoder:
 class JsonDecoder:
     def __call__(self, obs):
         return json.loads(obs.decode())
+
+
+class MsgpackEncoder:
+    def __call__(self, obs):
+        return msgpack.dumps(obs, use_bin_type=True)
+
+
+class MsgpackDecoder:
+    def __call__(self, obs):
+        return msgpack.loads(obs, raw=False)
+
+
+if __name__ == "__main__":
+    d = {"a": 1, "b": 2, "c": {"d": 3}}
+    encoded = MsgpackEncoder()(d)
+    assert type(encoded) == bytes
+
+    decoded = MsgpackDecoder()(encoded)
+    assert decoded == d
