@@ -1,7 +1,9 @@
-import time
 import asyncio
 import os
+import time
+
 from worker import AsyncBrowserWorker
+
 
 async def setup():
     playwright = await async_playwright().start()
@@ -11,6 +13,7 @@ async def setup():
     browser = await browser_type.launch(headless=True)
 
     return browser
+
 
 timeout = 30000
 
@@ -58,11 +61,13 @@ async def create_context(context_options, browser):
 
     return browser_context
 
+
 async def navigate(context, page, url, wait_until="load", timeout=timeout):
     if page is None:
         page = await context.new_page()
     await page.goto(url, wait_until=wait_until, timeout=timeout)
     return page
+
 
 async def get_observation(page, observation_type="html"):
     if observation_type == "html":
@@ -73,6 +78,7 @@ async def get_observation(page, observation_type="html"):
         return {"accessibility": accessibility}
     else:
         raise ValueError(f"Unknown observation type: {observation_type}")
+
 
 async def run_one_traj(browser):
     try:
@@ -112,12 +118,11 @@ async def main():
         for result in results:
             f.write(f"{result}\n")
     end_time = time.time()
-    print(f"Total time: {end_time - start_time} seconds, finished {sum([result != False for result in results])} trajectories")
+    print(
+        f"Total time: {end_time - start_time} seconds, finished {sum([result != False for result in results])} trajectories"
+    )
     # await browser.close()
-    
+
+
 if __name__ == "__main__":
     asyncio.run(main())
-    
-
-    
-    

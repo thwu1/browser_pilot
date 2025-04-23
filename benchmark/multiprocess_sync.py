@@ -1,5 +1,6 @@
-from playwright.sync_api import sync_playwright
 import time
+
+from playwright.sync_api import sync_playwright
 
 playwright = sync_playwright().start()
 
@@ -53,11 +54,13 @@ def create_context(context_options={}):
 
     return browser_context
 
+
 def navigate(context, page, url, wait_until="load", timeout=timeout):
     if page is None:
         page = context.new_page()
     page.goto(url, wait_until=wait_until, timeout=timeout)
     return page
+
 
 def get_observation(page, observation_type="html"):
     if observation_type == "html":
@@ -91,6 +94,5 @@ if __name__ == "__main__":
     end_time = time.time()
 
     print(f"Time taken: {end_time - start_time} seconds")
-    
+
     # print(observation)
-    
