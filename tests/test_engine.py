@@ -3,10 +3,10 @@ import threading
 import time
 import uuid
 
-from async_engine import AsyncBrowserEngine
-from engine import BrowserEngine, BrowserEngineConfig
-from scheduler import SchedulerType
-from worker import BrowserWorkerTask
+from v1.async_engine import AsyncBrowserEngine
+from v1.engine import BrowserEngine, BrowserEngineConfig
+from v1.scheduler import SchedulerType
+from v1.worker import BrowserWorkerTask
 
 
 def test_engine_basic():
