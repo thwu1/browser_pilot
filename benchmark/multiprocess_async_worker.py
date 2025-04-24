@@ -4,9 +4,8 @@ import time
 
 from worker import AsyncBrowserWorker
 
-
-
 timeout = 30000
+
 
 async def create_context(context_options, browser):
     # Create browser context with provided options

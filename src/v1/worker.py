@@ -729,7 +729,7 @@ class AsyncBrowserWorker:
             if "Target closed" in str(e) or "Session closed" in str(e):
                 context_info.state = ContextState.FAILED
             raise
-    
+
     async def _close_context(self, context_id: str):
         context_info = self.contexts.get(context_id)
         if context_info is None:

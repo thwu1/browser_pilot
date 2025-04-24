@@ -120,12 +120,14 @@ async def _get_observation_async(context_id, page_id, observation_type, client):
     )
     return response
 
+
 async def close_context(context_id, client=None):
     if client is None:
         async with httpx.AsyncClient(timeout=30) as temp_client:
             return await _close_context_async(context_id, temp_client)
     else:
         return await _close_context_async(context_id, client)
+
 
 async def _close_context_async(context_id, client):
     response = await client.post(
@@ -136,6 +138,7 @@ async def _close_context_async(context_id, client):
         },
     )
     return response
+
 
 async def test_navigate_async(client=None):
     use_shared_client = client is not None
@@ -528,12 +531,15 @@ def summary(df):
 
     return df
 
+
 def test_server_v2(total=256, batch_size=8):
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
     print(f"Running with {total} concurrent requests, optimized for speed...")
     start_time = time.time()
-    outputs, cmds = asyncio.run(test_navigate_concurrent_async(total, batch_size=batch_size))
+    outputs, cmds = asyncio.run(
+        test_navigate_concurrent_async(total, batch_size=batch_size)
+    )
     end_time = time.time()
     print(f"Time taken: {end_time - start_time} seconds")
     df = calculate_metrics(outputs, cmds)
@@ -568,4 +574,3 @@ def test_server_v2(total=256, batch_size=8):
 #     # df = calculate_metrics(outputs, cmds)
 #     # df = summary(df)
 #     # df.to_csv(f"server_v1_sync_{os.getpid()}.csv", index=False)
-

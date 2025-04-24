@@ -73,17 +73,15 @@ class AsyncBrowserEngine(BrowserEngine):
                 #     "_execute_scheduler_output",
                 #     log_file="timer_execute_scheduler_output.log",
                 # ):
-                await self._execute_scheduler_output(
-                        scheduled_tasks, scheduler_output
-                    )
+                await self._execute_scheduler_output(scheduled_tasks, scheduler_output)
 
                 # with Timer(
                 #     "_update_task_tracker_with_scheduler_output",
                 #     log_file="timer_update_task_tracker_with_scheduler_output.log",
                 # ):
                 self._update_task_tracker_with_scheduler_output(
-                        scheduled_tasks, scheduler_output
-                    )
+                    scheduled_tasks, scheduler_output
+                )
 
                 await self._process_output_and_update_tracker()
 

@@ -1,5 +1,6 @@
-import time
 import os
+import time
+
 import pandas as pd
 from playwright.sync_api import sync_playwright
 
@@ -11,6 +12,7 @@ from playwright.sync_api import sync_playwright
 
 timeout = 30000
 
+
 def setup():
     playwright = sync_playwright().start()
 
@@ -19,6 +21,7 @@ def setup():
     browser = browser_type.launch(headless=True)
 
     return browser, playwright
+
 
 def create_context(context_options={}, browser=None):
     # Create browser context with provided options
@@ -81,6 +84,7 @@ def get_observation(page, observation_type="html"):
     else:
         raise ValueError(f"Unknown observation type: {observation_type}")
 
+
 def single_traj(browser):
     times = [time.time()]
     cmds = ["create_context"]
@@ -124,6 +128,7 @@ def single_traj(browser):
     times.append(time.time())
 
     return times, cmds
+
 
 def test_sync_playwright(*args):
 

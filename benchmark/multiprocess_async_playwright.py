@@ -2,9 +2,10 @@ import asyncio
 import os
 import time
 
+import pandas as pd
 import uvloop
 from playwright.async_api import async_playwright
-import pandas as pd
+
 
 async def setup():
     playwright = await async_playwright().start()
@@ -140,6 +141,7 @@ async def _test_async_playwright(concurrency):
         start_time.extend(times[:-1])
 
     return pd.DataFrame({"cmds": cmds, "duration": durations, "start_time": start_time})
+
 
 def test_async_playwright(concurrency, *args):
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())

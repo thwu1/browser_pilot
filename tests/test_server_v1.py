@@ -120,12 +120,14 @@ async def _get_observation_async(context_id, page_id, observation_type, client):
     )
     return response
 
+
 async def close_context(context_id, client=None):
     if client is None:
         async with httpx.AsyncClient(timeout=30) as temp_client:
             return await _close_context_async(context_id, temp_client)
     else:
         return await _close_context_async(context_id, client)
+
 
 async def _close_context_async(context_id, client):
     response = await client.post(
@@ -136,6 +138,7 @@ async def _close_context_async(context_id, client):
         },
     )
     return response
+
 
 async def test_navigate_async(client=None):
     use_shared_client = client is not None
@@ -555,4 +558,3 @@ if __name__ == "__main__":
     # df = calculate_metrics(outputs, cmds)
     # df = summary(df)
     # df.to_csv(f"server_v1_sync_{os.getpid()}.csv", index=False)
-

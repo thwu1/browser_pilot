@@ -34,9 +34,7 @@ if __name__ == "__main__":
         size = num_proc
     start = time.time()
     with mp.Pool(num_proc) as pool:
-        pids = pool.starmap(
-            run_python_in_subprocess, [(i, args) for i in range(size)]
-        )
+        pids = pool.starmap(run_python_in_subprocess, [(i, args) for i in range(size)])
     end = time.time()
     print(f"Total time: {end - start:.2f} seconds")
 

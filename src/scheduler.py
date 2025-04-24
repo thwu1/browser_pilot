@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from type.scheduler_type import SchedulerOutput, SchedulerType
 from worker import BrowserWorkerTask
@@ -49,7 +49,7 @@ class RoundRobinScheduler:
         last_assigned_worker: List[str],
         n_workers: int,
         worker_status: Optional[List[Dict[str, Any]]] = None,
-    ) -> SchedulerOutput:
+    ) -> Tuple[List[BrowserWorkerTask], SchedulerOutput]:
         """
         Assign tasks to workers in a round-robin manner
         """

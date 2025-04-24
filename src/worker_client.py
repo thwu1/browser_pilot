@@ -20,8 +20,8 @@ import zmq.asyncio
 
 from timer_util import Timer
 from utils import (JsonDecoder, JsonEncoder, MsgpackDecoder, MsgpackEncoder,
-                   ZstdMsgpackDecoder, ZstdMsgpackEncoder,
-                   MsgType, make_zmq_socket)
+                   MsgType, ZstdMsgpackDecoder, ZstdMsgpackEncoder,
+                   make_zmq_socket)
 from worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(

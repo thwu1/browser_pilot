@@ -84,15 +84,18 @@ class MsgpackDecoder:
     def __call__(self, obs):
         return msgpack.loads(obs, raw=False)
 
+
 class ZstdMsgpackEncoder:
     def __init__(self, level: int = 3):
         self.cctx = zstd.ZstdCompressor(level=level)
+
     def __call__(self, obs):
         # 1. Serialize with msgpack
         packed_data = msgpack.packb(obs, use_bin_type=True)
         # 2. Compress with Zstandard
         compressed_data = self.cctx.compress(packed_data)
         return compressed_data
+
 
 class ZstdMsgpackDecoder:
     def __init__(self):
@@ -105,8 +108,21 @@ class ZstdMsgpackDecoder:
         obj = msgpack.unpackb(packed_data, raw=False)
         return obj
 
+
 if __name__ == "__main__":
-    d = {'task_id': 'task_6d3d0e99', 'context_id': 'context_21a2bc2a', 'page_id': '9b59ab14-785c-468d-9632-1ac904ffba95', 'command': 'browser_observation', 'params': {'observation_type': 'html'}, 'engine_recv_timestamp': 1745349913.0101, 'engine_send_timestamp': 1745349913.0202243, 'worker_recv_timestamp': 1745349913.020963, 'worker_start_process_timestamp': None, 'worker_finish_process_timestamp': None, 'worker_send_timestamp': None}
+    d = {
+        "task_id": "task_6d3d0e99",
+        "context_id": "context_21a2bc2a",
+        "page_id": "9b59ab14-785c-468d-9632-1ac904ffba95",
+        "command": "browser_observation",
+        "params": {"observation_type": "html"},
+        "engine_recv_timestamp": 1745349913.0101,
+        "engine_send_timestamp": 1745349913.0202243,
+        "worker_recv_timestamp": 1745349913.020963,
+        "worker_start_process_timestamp": None,
+        "worker_finish_process_timestamp": None,
+        "worker_send_timestamp": None,
+    }
     encoded = MsgpackEncoder()(d)
     # print(len(encoded))
     assert type(encoded) == bytes
@@ -120,4 +136,3 @@ if __name__ == "__main__":
 
     zstd_decoded = ZstdMsgpackDecoder()(zstd_encoded)
     assert zstd_decoded == d
-    
