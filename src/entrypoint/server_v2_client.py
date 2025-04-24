@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import multiprocessing as mp
 import signal
 import time
 import uuid
@@ -9,18 +10,16 @@ from typing import Any, Dict, Optional
 
 import uvicorn
 import uvloop
+import zmq
+import zmq.asyncio
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from async_engine import AsyncBrowserEngine
 from engine import BrowserEngineConfig
 from scheduler import SchedulerType
+from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket
 from worker import BrowserWorkerTask
-import multiprocessing  as mp
-import zmq
-import zmq.asyncio
-from utils import make_zmq_socket
-from utils import MsgpackDecoder, MsgpackEncoder, MsgType
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +39,7 @@ sockets = None
 encoder = MsgpackEncoder()
 decoder = MsgpackDecoder()
 
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Startup: initialize the engine
@@ -48,7 +48,15 @@ async def lifespan(_: FastAPI):
     ctx = zmq.asyncio.Context(io_threads=1)
     sockets = asyncio.Queue()
     for _ in range(64):
-        sockets.put_nowait(make_zmq_socket(ctx, "ipc://app_to_engine.sock", zmq.DEALER, bind=False, identity=str(uuid.uuid4().hex[:8]).encode()))
+        sockets.put_nowait(
+            make_zmq_socket(
+                ctx,
+                "ipc://app_to_engine.sock",
+                zmq.DEALER,
+                bind=False,
+                identity=str(uuid.uuid4().hex[:8]).encode(),
+            )
+        )
     logger.info(f"Created {64} sockets for engine")
     try:
         yield
@@ -242,7 +250,6 @@ if __name__ == "__main__":
 
     # Use uvloop for a faster event loop
     # uvloop.install()
-
     # # Ensure we have a file handler in the Uvicorn logging config
     # LOGGING_CONFIG.setdefault("handlers", {}).update({
     #     "file": {
@@ -254,7 +261,6 @@ if __name__ == "__main__":
     # LOGGING_CONFIG.setdefault("root", {"handlers": [], "level": "INFO"})
     # if "file" not in LOGGING_CONFIG["root"].get("handlers", []):
     #     LOGGING_CONFIG["root"]["handlers"].append("file")
-
     # Start the FastAPI app via Uvicorn
     uvicorn.run(
         "src.entrypoint.server_v2:app",
