@@ -19,13 +19,18 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import uvloop
 import zmq
 import zmq.asyncio
-from playwright.async_api import (Browser, BrowserContext, Page,
-                                  async_playwright)
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from type.task_type import BrowserWorkerTask
 from type.worker_type import WorkerStatus
-from utils import (JsonDecoder, JsonEncoder, MsgpackDecoder, MsgpackEncoder,
-                   MsgType, make_zmq_socket)
+from utils import (
+    JsonDecoder,
+    JsonEncoder,
+    MsgpackDecoder,
+    MsgpackEncoder,
+    MsgType,
+    make_zmq_socket,
+)
 
 # Configure logging
 logging.basicConfig(

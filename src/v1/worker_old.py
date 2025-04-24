@@ -10,8 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import zmq
 import zmq.asyncio
-from playwright.async_api import (Browser, BrowserContext, Page,
-                                  async_playwright)
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from type.task_type import BrowserWorkerTask
 from type.worker_type import WorkerStatus
