@@ -7,12 +7,15 @@ import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional
 
 from scheduler import make_scheduler
 from type.scheduler_type import SchedulerOutput, SchedulerType
 from worker import BrowserWorkerTask
 from worker_client import WorkerClient, make_client
+from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket
+import zmq
+import threading
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -38,9 +41,22 @@ class BrowserEngine:
         self.task_tracker = {}
         self.context_tracker = {}
 
-        self.output_dict = {}
         self.batch_size = self.config.scheduler_config["max_batch_size"]
         self.n_workers = self.config.worker_client_config["num_workers"]
+
+        self.task_id_to_identity = {}
+        self.zmq = zmq.Context(io_threads=1)
+        self.socket = make_zmq_socket(
+            self.zmq, "ipc://app_to_engine.sock", zmq.ROUTER, bind=True
+        )
+
+        self.encoder = MsgpackEncoder()
+        self.decoder = MsgpackDecoder()
+
+        self._running = True
+        self._process_incoming_thread = threading.Thread(target=self.process_incoming)
+        self._process_incoming_thread.start()
+        logger.info("Browser engine started, background process_incoming thread started")
 
     def _check_command_validity(self, task: BrowserWorkerTask):
         """
@@ -70,10 +86,6 @@ class BrowserEngine:
         """
 
         # self._check_task_validity(task)
-
-        self.waiting_queue.put(task)
-        logger.info(f"added task {task.task_id} to waiting queue")
-
         if not task.context_id:
             context_id = f"{uuid.uuid4().hex[:8]}"
             task.context_id = context_id
@@ -81,6 +93,10 @@ class BrowserEngine:
         else:
             if task.context_id not in self.context_tracker:
                 self.context_tracker[task.context_id] = -1
+
+        task.engine_recv_timestamp = time.time()
+        self.waiting_queue.put(task)
+        logger.info(f"added task {task.task_id} to waiting queue")
 
         # # check if context_id in context_tracker (key is context_id, value is the worker_id)
         # if not task.context_id:
@@ -90,20 +106,34 @@ class BrowserEngine:
         #         raise ValueError(f"Context ID {task.context_id} not found in context_tracker. New context worker mapping should be created by scheduler.")
 
         # Add engine recv timestamp
-        task.engine_recv_timestamp = time.time()
-
-    def add_batch_tasks(self, tasks: List[BrowserWorkerTask]):
-        """
-        Add a batch of tasks to the waiting queue
-        """
-        for task in tasks:
-            self.add_task(task)
-        return
 
     def _shutdown(self):
         logger.info("Shutting down engine")
         self._running = False
         self.worker_client.close()
+
+    def _recv(self):
+        msg = self.socket.recv_multipart()
+        assert len(msg) == 3
+        identity = msg[0]
+        msg_type = msg[1]
+        return identity, msg_type, self.decoder(msg[2])
+
+    def _send(self, msg, identity, msg_type):
+        self.socket.send_multipart(
+            [identity, msg_type, self.encoder(msg)], flags=zmq.NOBLOCK
+        )
+
+    def process_incoming(self):
+        while self._running:
+            identity, msg_type, msg = self._recv()
+            if msg_type == MsgType.TASK:
+                task = BrowserWorkerTask(**msg)
+                task_id = task.task_id
+                self.task_id_to_identity[task_id] = identity
+                self.add_task(task)
+            else:
+                raise ValueError(f"Unknown message type: {msg_type}")
 
     def engine_core_loop(self):
         """Main engine loop that processes tasks and manages workers"""
@@ -121,7 +151,7 @@ class BrowserEngine:
                 if not tasks:
                     logger.debug(f"no tasks in waiting queue, processing outputs")
                     self._process_output_and_update_tracker()
-                    time.sleep(0.1)  # small sleep enable other threads to run
+                    # time.sleep(0.1)  # small sleep enable other threads to run
                     continue
 
                 worker_status = self.worker_client.get_worker_status_no_wait()
@@ -189,9 +219,10 @@ class BrowserEngine:
                 logger.warning(f"task {msg['task_id']} failed")
             assert "task_id" in msg
             task_id = msg["task_id"]
-            assert task_id not in self.output_dict
-            self.output_dict[task_id] = msg
             self.task_tracker[task_id]["status"] = "finished"
+            msg["profile"]["engine_set_future_timestamp"] = time.time()
+            self._send(msg, self.task_id_to_identity[task_id], MsgType.REPLY)
+            self.task_id_to_identity.pop(task_id)
             logger.debug(f"updated task {task_id} status to finished")
 
 
