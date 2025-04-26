@@ -10,9 +10,8 @@ import zmq.asyncio
 
 from engine import BrowserEngineConfig, BrowserWorkerTask
 from scheduler import SchedulerOutput, make_scheduler
-from timer_util import Timer
 from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket
-from worker_client import WorkerClient, make_client
+from worker_client import make_client, AsyncWorkerClient
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -22,7 +21,9 @@ class AsyncBrowserEngine:
     def __init__(self, config: BrowserEngineConfig):
         self.config = config
         self.scheduler = make_scheduler(self.config.scheduler_config)
-        self.worker_client: WorkerClient = make_client(self.config.worker_client_config)
+        self.worker_client: AsyncWorkerClient = make_client(
+            self.config.worker_client_config
+        )
         self._running = False
 
         self.task_tracker = {}
@@ -54,10 +55,6 @@ class AsyncBrowserEngine:
         await self.waiting_queue.put(task)
         logger.info(f"added task {task.task_id} to waiting queue")
 
-    # async def add_batch_tasks(self, tasks: List[BrowserWorkerTask]):
-    #     futures = [self.add_task(task) for task in tasks]
-    #     return await asyncio.gather(*futures)
-
     async def _recv(self):
         msg = await self.socket.recv_multipart()
         assert len(msg) == 3
@@ -79,20 +76,28 @@ class AsyncBrowserEngine:
             else:
                 raise ValueError(f"Unknown message type: {msg_type}")
 
+    async def process_output(self):
+        while self._running:
+            await self._process_output_and_update_tracker()
+
     async def engine_core_loop(self):
         """Main engine loop that processes tasks and manages workers"""
         try:
             while self._running:
                 tasks = []
                 prev_workers = []
-                while not self.waiting_queue.empty() and len(tasks) < self.batch_size:
+
+                if self.waiting_queue.empty():
                     task = await self.waiting_queue.get()
                     tasks.append(task)
                     prev_workers.append(self.context_tracker[task.context_id])
 
-                if not tasks:
-                    await self._process_output_and_update_tracker()
-                    continue
+                # assert tasks, "No tasks in waiting queue, this should not happen"
+                while not self.waiting_queue.empty() and len(tasks) < self.batch_size:
+                    task = self.waiting_queue.get_nowait()
+                    tasks.append(task)
+                    prev_workers.append(self.context_tracker[task.context_id])
+
 
                 worker_status = self.worker_client.get_worker_status_no_wait()
 
@@ -109,7 +114,7 @@ class AsyncBrowserEngine:
                     scheduled_tasks, scheduler_output
                 )
 
-                await self._process_output_and_update_tracker()
+                # await self._process_output_and_update_tracker()
 
         except Exception as e:
             logger.error(f"Exception in engine core loop: {e}")
@@ -161,31 +166,20 @@ class AsyncBrowserEngine:
 
         # Send batched tasks to each worker
         for worker_id, task_batch in worker_tasks.items():
-            self.worker_client.send(task_batch, worker_id)
+            await self.worker_client.send(task_batch, worker_id)
             logger.debug(f"sent batch of {len(task_batch)} tasks to worker {worker_id}")
 
-        await asyncio.sleep(0)
-
     async def _process_output_and_update_tracker(self):
-        output_queue_len = self.worker_client.get_output_queue_len()
-        if output_queue_len == 0:
-            await asyncio.sleep(0)
-            return
-
-        output_queue_len = min(output_queue_len, 128)
-        while self.worker_client.get_output_queue_len() > 0:
-            idx, msg = self.worker_client.get_output_nowait()
-            logger.debug(f"received task {msg['task_id']} from worker {idx}")
-            if not msg["result"]["success"]:
-                logger.warning(f"task {msg['task_id']} failed")
-            assert "task_id" in msg
-            task_id = msg["task_id"]
-            self.task_tracker[task_id]["status"] = "finished"
-            msg["profile"]["engine_set_future_timestamp"] = time.time()
-            await self._send(msg, self.task_id_to_identity[task_id], MsgType.REPLY)
-            self.task_id_to_identity.pop(task_id)
-            logger.debug(f"updated task {task_id} status to finished")
-        await asyncio.sleep(0)
+        idx, msg = await self.worker_client.get_output()
+        logger.debug(f"received task {msg['task_id']} from worker {idx}")
+        if not msg["result"]["success"]:
+            logger.warning(f"task {msg['task_id']} failed")
+        assert "task_id" in msg
+        task_id = msg["task_id"]
+        self.task_tracker[task_id]["status"] = "finished"
+        msg["profile"]["engine_set_future_timestamp"] = time.time()
+        await self._send(msg, self.task_id_to_identity[task_id], MsgType.REPLY)
+        self.task_id_to_identity.pop(task_id)
 
     def _update_task_tracker_with_scheduler_output(
         self, tasks: List[BrowserWorkerTask], scheduler_output: SchedulerOutput
