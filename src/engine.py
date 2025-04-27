@@ -3,19 +3,20 @@ import logging
 import multiprocessing as mp
 import queue
 import signal
+import threading
 import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import zmq
+
 from scheduler import make_scheduler
 from type.scheduler_type import SchedulerOutput, SchedulerType
-from worker import BrowserWorkerTask
-from worker_client import WorkerClient, make_client
 from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket
-import zmq
-import threading
+from worker import BrowserWorkerTask
+from worker_client import WorkerClient
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -57,7 +58,9 @@ class BrowserEngine:
         self._running = True
         self._process_incoming_thread = threading.Thread(target=self.process_incoming)
         self._process_incoming_thread.start()
-        logger.info("Browser engine started, background process_incoming thread started")
+        logger.info(
+            "Browser engine started, background process_incoming thread started"
+        )
 
     def _check_command_validity(self, task: BrowserWorkerTask):
         """

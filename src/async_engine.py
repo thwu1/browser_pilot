@@ -1,8 +1,8 @@
-from abc import ABC
 import asyncio
 import logging
 import time
 import uuid
+from abc import ABC
 from collections import defaultdict
 from typing import Dict, List
 
@@ -13,10 +13,11 @@ from engine import BrowserEngineConfig, BrowserWorkerTask
 from scheduler import SchedulerOutput, make_scheduler
 from timer_util import Timer
 from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket
-from worker_client import WorkerClient, make_client
+from worker_client import WorkerClient
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
 
 class BrowserEngine(ABC):
     @staticmethod
@@ -26,7 +27,9 @@ class BrowserEngine(ABC):
         elif config.worker_client_config["type"] == "async":
             return AsyncBrowserEngineAsyncClient(config)
         else:
-            raise ValueError(f"Invalid worker client type: {config.worker_client_config['type']}")
+            raise ValueError(
+                f"Invalid worker client type: {config.worker_client_config['type']}"
+            )
 
     async def add_task_async(self, task: BrowserWorkerTask):
         raise NotImplementedError
@@ -36,6 +39,7 @@ class BrowserEngine(ABC):
 
     def shutdown(self):
         raise NotImplementedError
+
 
 class AsyncBrowserEngineSyncClient(BrowserEngine):
     def __init__(self, config: BrowserEngineConfig):
@@ -73,7 +77,7 @@ class AsyncBrowserEngineSyncClient(BrowserEngine):
         task.engine_recv_timestamp = time.time()
         await self.waiting_queue.put(task)
         logger.info(f"added task {task.task_id} to waiting queue")
-    
+
     async def start(self):
         self._running = True
         loop = asyncio.get_running_loop()
@@ -320,18 +324,17 @@ class AsyncBrowserEngineAsyncClient(BrowserEngine):
         finally:
             logger.info("Received shutdown signal, call engine shutdown")
             self.shutdown()
-    
+
     async def start(self):
-        self._running= True
+        self._running = True
         loop = asyncio.get_running_loop()
 
         await self.worker_client.wait_for_workers_ready()
-        
+
         loop.create_task(self._recv_loop())
         loop.create_task(self._send_loop())
         loop.create_task(self._engine_core_loop())
         loop.create_task(self.worker_client.run_recv_loop())
-
 
     def shutdown(self):
         logger.info("Shutting down engine")

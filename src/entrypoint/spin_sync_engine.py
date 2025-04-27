@@ -5,7 +5,7 @@ import signal
 import uvloop
 
 from async_engine import AsyncBrowserEngine
-from engine import BrowserEngineConfig, BrowserEngine
+from engine import BrowserEngine, BrowserEngineConfig
 from scheduler import SchedulerType
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     engine = BrowserEngine(BrowserEngineConfig(**engine_config))
     engine._running = True
-    
+
     engine.engine_core_loop()
 
     def shutdown_handler(signum, frame):

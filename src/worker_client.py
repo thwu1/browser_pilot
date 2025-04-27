@@ -13,11 +13,11 @@ import threading
 import time
 import uuid
 import weakref
+from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
 import zmq
 import zmq.asyncio
-from abc import ABC, abstractmethod
 
 from timer_util import Timer
 from utils import (
@@ -40,16 +40,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def make_client(config: Dict[str, Any]):
-    try:
-        return WorkerClient(
-            config["input_path"], config["output_path"], config["num_workers"]
-        )
-    except Exception as e:
-        logger.error(f"Error making client: {e}")
-        raise e
-    
-
 class WorkerClient(ABC):
     @staticmethod
     def make_client(config: Dict[str, Any]):
@@ -62,18 +52,19 @@ class WorkerClient(ABC):
                 config["input_path"], config["output_path"], config["num_workers"]
             )
         else:
-            raise ValueError(f"Invalid worker client type: {config['worker_client_type']}")
-    
+            raise ValueError(
+                f"Invalid worker client type: {config['worker_client_type']}"
+            )
+
     @abstractmethod
-    def close(self):
-        ...
-    
+    def close(self): ...
+
     def send(self, msg: List[Dict[str, Any]], index: int):
         raise NotImplementedError
 
     def get_worker_status_no_wait(self):
         raise NotImplementedError
-    
+
     def get_output_queue_len(self):
         raise NotImplementedError
 
@@ -82,15 +73,16 @@ class WorkerClient(ABC):
 
     async def send_async(self, msg: List[Dict[str, Any]], index: int):
         raise NotImplementedError
-    
+
     async def get_output_async(self):
         raise NotImplementedError
 
     async def run_recv_loop(self):
         raise NotImplementedError
-    
+
     async def wait_for_workers_ready(self, timeout: float = 10):
         raise NotImplementedError
+
 
 class SyncWorkerClient(WorkerClient):
     def __init__(self, input_path: str, output_path: str, num_workers: int):
@@ -316,7 +308,6 @@ class AsyncWorkerClient(WorkerClient):
         index = int(msg[0])
         msg_type = msg[1]
         return index, msg_type, self.decoder(msg[2])
-
 
     async def run_recv_loop(self):
         self._recv_loop_running = True

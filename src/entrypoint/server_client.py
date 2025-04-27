@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 import uvicorn
 import uvloop
+import yaml
 import zmq
 import zmq.asyncio
 from fastapi import FastAPI, HTTPException
@@ -21,7 +22,6 @@ from utils import (
     make_zmq_socket,
 )
 from worker import BrowserWorkerTask
-import yaml
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +40,7 @@ encoder = MsgpackEncoder()
 decoder = MsgpackDecoder()
 
 config = yaml.safe_load(open("src/entrypoint/config.yaml"))
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
