@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import zmq
 import zmq.asyncio
+from abc import ABC, abstractmethod
 
 from timer_util import Timer
 from utils import (
@@ -47,9 +48,51 @@ def make_client(config: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Error making client: {e}")
         raise e
+    
 
+class WorkerClient(ABC):
+    @staticmethod
+    def make_client(config: Dict[str, Any]):
+        if config["type"] == "sync":
+            return SyncWorkerClient(
+                config["input_path"], config["output_path"], config["num_workers"]
+            )
+        elif config["type"] == "async":
+            return AsyncWorkerClient(
+                config["input_path"], config["output_path"], config["num_workers"]
+            )
+        else:
+            raise ValueError(f"Invalid worker client type: {config['worker_client_type']}")
+    
+    @abstractmethod
+    def close(self):
+        ...
+    
+    def send(self, msg: List[Dict[str, Any]], index: int):
+        raise NotImplementedError
 
-class WorkerClient:
+    def get_worker_status_no_wait(self):
+        raise NotImplementedError
+    
+    def get_output_queue_len(self):
+        raise NotImplementedError
+
+    def get_output_nowait(self):
+        raise NotImplementedError
+
+    async def send_async(self, msg: List[Dict[str, Any]], index: int):
+        raise NotImplementedError
+    
+    async def get_output_async(self):
+        raise NotImplementedError
+
+    async def run_recv_loop(self):
+        raise NotImplementedError
+    
+    async def wait_for_workers_ready(self, timeout: float = 10):
+        raise NotImplementedError
+
+class SyncWorkerClient(WorkerClient):
     def __init__(self, input_path: str, output_path: str, num_workers: int):
         self.input_path = input_path
         self.output_path = output_path
@@ -75,8 +118,6 @@ class WorkerClient:
         self.recv_thread = threading.Thread(target=self._recv_thread)
         self._recv_thread_running = True
         self.recv_thread.start()
-
-        self.finished_tasks = {}
 
     def _start_workers(self):
         self.worker_processes = []
@@ -106,38 +147,12 @@ class WorkerClient:
             logger.info(f"All workers {self.num_workers} are ready")
 
     def send(self, msg: List[Dict[str, Any]], index: int):
-        # with Timer("_send", log_file="timer_client_send.log"):
         self._send(msg, index)
-
-    async def get_output_with_task_id(self, task_id, timeout: float = 20):
-        """For testing only"""
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if task_id in self.finished_tasks:
-                return self.finished_tasks[task_id]
-            if self.output_queue.qsize() > 0:
-                idx, msg = self.output_queue.get_nowait()
-                assert "task_id" in msg
-                self.finished_tasks[msg["task_id"]] = msg
-            await asyncio.sleep(0.1)
-
-        if task_id not in self.finished_tasks:
-            return None
-        return self.finished_tasks[task_id]
 
     def get_output_nowait(self):
         if self.output_queue.qsize() > 0:
             return self.output_queue.get_nowait()
         return None
-
-    def get_output(self, timeout: float = 20):
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if self.output_queue.qsize() > 0:
-                return self.output_queue.get()
-            time.sleep(0.1)
-
-        raise TimeoutError("Timeout waiting for output")
 
     def get_output_queue_len(self):
         return self.output_queue.qsize()
@@ -149,14 +164,11 @@ class WorkerClient:
         )
 
     def _recv(self):
-        # try:
         msg = self.output_socket.recv_multipart()
         assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
         index = int(msg[0])
         msg_type = msg[1]
         return index, msg_type, self.decoder(msg[2])
-        # except zmq.Again:
-        #     return None, None, None
 
     def _recv_thread(self):
         while self._recv_thread_running:
@@ -229,7 +241,7 @@ class WorkerClient:
             logger.error(f"Error during worker client shutdown: {e}")
 
 
-class AsyncWorkerClient:
+class AsyncWorkerClient(WorkerClient):
     def __init__(self, input_path: str, output_path: str, num_workers: int):
         self.input_path = input_path
         self.output_path = output_path
@@ -250,11 +262,8 @@ class AsyncWorkerClient:
         self.worker_status = {worker_id: {} for worker_id in range(num_workers)}
 
         self._start_workers()
-        # self._wait_for_workers_ready()
 
         self._recv_loop_running = False
-
-        self.finished_tasks = {}
 
     def _start_workers(self):
         self.worker_processes = []
@@ -268,7 +277,7 @@ class AsyncWorkerClient:
             process.start()
             self.worker_processes.append(process)
 
-    async def _wait_for_workers_ready(self, timeout: float = 10):
+    async def wait_for_workers_ready(self, timeout: float = 10):
         waiting_workers = set(range(self.num_workers))
         while waiting_workers:
             idx, msg_type, msg = await self._recv()
@@ -285,22 +294,6 @@ class AsyncWorkerClient:
     async def send(self, msg: List[Dict[str, Any]], index: int):
         # with Timer("_send", log_file="timer_client_send.log"):
         await self._send(msg, index)
-
-    async def get_output_with_task_id(self, task_id, timeout: float = 20):
-        """For testing only"""
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if task_id in self.finished_tasks:
-                return self.finished_tasks[task_id]
-            if self.output_queue.qsize() > 0:
-                idx, msg = self.output_queue.get_nowait()
-                assert "task_id" in msg
-                self.finished_tasks[msg["task_id"]] = msg
-            await asyncio.sleep(0.1)
-
-        if task_id not in self.finished_tasks:
-            return None
-        return self.finished_tasks[task_id]
 
     def get_output_nowait(self):
         if self.output_queue.qsize() > 0:
@@ -324,17 +317,8 @@ class AsyncWorkerClient:
         msg_type = msg[1]
         return index, msg_type, self.decoder(msg[2])
 
-    # def _recv_no_wait(self):
-    #     try:
-    #         msg = asyncio.wait_for(self.output_socket.recv_multipart(), timeout=0.1)
-    #         assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
-    #         index = int(msg[0])
-    #         msg_type = msg[1]
-    #         return index, msg_type, self.decoder(msg[2])
-    #     except zmq.Again:
-    #         return None, None, None
 
-    async def _recv_loop(self):
+    async def run_recv_loop(self):
         self._recv_loop_running = True
         while self._recv_loop_running:
             idx, msg_type, msg = await self._recv()

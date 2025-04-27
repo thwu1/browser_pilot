@@ -4,7 +4,7 @@ import signal
 
 import uvloop
 
-from async_engine import AsyncBrowserEngine
+from async_engine import BrowserEngine
 from engine import BrowserEngineConfig
 from scheduler import SchedulerType
 
@@ -16,6 +16,7 @@ DEFAULT_CONFIG = {
         "input_path": "ipc://input_fastapi.sock",
         "output_path": "ipc://output_fastapi.sock",
         "num_workers": 32,
+        "type": "sync",
     },
     "scheduler_config": {
         "type": SchedulerType.ROUND_ROBIN,
@@ -35,14 +36,12 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    engine = AsyncBrowserEngine(BrowserEngineConfig(**engine_config))
-    engine._running = True
-    loop.create_task(engine.engine_core_loop())
-    loop.create_task(engine.process_incoming())
+    engine = BrowserEngine.make_engine(BrowserEngineConfig(**engine_config))
+    loop.create_task(engine.start())
 
     def shutdown_handler(signum, frame):
         logger.info("Signal received, shutting down engine")
-        engine._shutdown()
+        engine.shutdown()
         loop.stop()
 
     signal.signal(signal.SIGINT, shutdown_handler)

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 ctx = None
 sockets = None
+num_sockets = 64
 encoder = MsgpackEncoder()
 decoder = MsgpackDecoder()
 
@@ -43,7 +44,7 @@ async def lifespan(_: FastAPI):
     global ctx, sockets
     ctx = zmq.asyncio.Context(io_threads=1)
     sockets = asyncio.Queue()
-    for _ in range(64):
+    for _ in range(num_sockets):
         sockets.put_nowait(
             make_zmq_socket(
                 ctx,
@@ -53,7 +54,7 @@ async def lifespan(_: FastAPI):
                 identity=str(uuid.uuid4().hex[:8]).encode(),
             )
         )
-    logger.info(f"Created {64} sockets for engine")
+    logger.info(f"Created {num_sockets} sockets for engine")
     try:
         yield
     except asyncio.CancelledError:
@@ -140,10 +141,10 @@ async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
 
 
 if __name__ == "__main__":
-    # uvicorn src.entrypoint.server_v2_client:app --host 0.0.0.0 --port 9999 --workers 4
+    # uvicorn src.entrypoint.server_client:app --host 0.0.0.0 --port 9999 --workers 4
 
     uvicorn.run(
-        "src.entrypoint.server_v2_client:app",
+        "src.entrypoint.server_client:app",
         host="0.0.0.0",
         port=9999,
         log_level="debug",

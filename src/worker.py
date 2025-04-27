@@ -1010,7 +1010,6 @@ class AsyncBrowserWorkerProc:
     async def process_outgoing_socket_loop(self):
         while self.worker.running:
             output = await self.worker.output_queue.get()
-            # send_time = time.time()
             output["profile"]["worker_send_timestamp"] = time.time()
 
             outputs = [output]
