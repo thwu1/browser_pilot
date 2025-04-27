@@ -21,6 +21,7 @@ from utils import (
     make_zmq_socket,
 )
 from worker import BrowserWorkerTask
+import yaml
 
 # Configure logging
 logging.basicConfig(
@@ -38,6 +39,7 @@ num_sockets = 64
 encoder = MsgpackEncoder()
 decoder = MsgpackDecoder()
 
+config = yaml.safe_load(open("src/entrypoint/config.yaml"))
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -48,7 +50,7 @@ async def lifespan(_: FastAPI):
         sockets.put_nowait(
             make_zmq_socket(
                 ctx,
-                "ipc://app_to_engine.sock",
+                config["engine_config"]["app_to_engine_socket"],
                 zmq.DEALER,
                 bind=False,
                 identity=str(uuid.uuid4().hex[:8]).encode(),

@@ -19,29 +19,29 @@ logger = logging.getLogger(__name__)
 
 
 def make_scheduler(scheduler_config):
-    assert scheduler_config["type"] == SchedulerType.ROUND_ROBIN
+    assert scheduler_config["type"] == "round_robin"
     return RoundRobinScheduler(
         batch_size=scheduler_config["max_batch_size"],
-        n_workers=scheduler_config["n_workers"],
+        num_workers=scheduler_config["num_workers"],
     )
 
 
 class RoundRobinScheduler:
-    def __init__(self, batch_size: int, n_workers: int):
+    def __init__(self, batch_size: int, num_workers: int):
         """
         Initialize the round-robin scheduler
         """
         self.scheduler_type = SchedulerType.ROUND_ROBIN
         self.batch_size = batch_size
-        self.n_workers = n_workers
+        self.num_workers = num_workers
 
-        def _iterator(n_workers: int):
+        def _iterator(num_workers: int):
             worker_id = 0
             while True:
                 yield worker_id
-                worker_id = (worker_id + 1) % n_workers
+                worker_id = (worker_id + 1) % num_workers
 
-        self.iterator = _iterator(n_workers)
+        self.iterator = _iterator(num_workers)
 
     def schedule(
         self,

@@ -23,6 +23,7 @@ logger.setLevel(logging.INFO)
 
 @dataclass
 class BrowserEngineConfig:
+    engine_config: Dict[str, Any]
     worker_client_config: Dict[str, Any]
     scheduler_config: Optional[Dict[str, Any]] = None
 
