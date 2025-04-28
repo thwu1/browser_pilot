@@ -121,6 +121,7 @@ class AsyncBrowserEngineSyncClient(BrowserEngine):
                     continue
 
                 worker_status = self.worker_client.get_worker_status_no_wait()
+                logger.info(f"worker_status: {worker_status}")
 
                 scheduled_tasks, scheduler_output = self.scheduler.schedule(
                     tasks, prev_workers, self.n_workers, worker_status
@@ -228,6 +229,7 @@ class AsyncBrowserEngineSyncClient(BrowserEngine):
 class AsyncBrowserEngineAsyncClient(BrowserEngine):
     def __init__(self, config: BrowserEngineConfig):
         self.config = config
+        self.engine_config = self.config.engine_config
         self.scheduler = make_scheduler(self.config.scheduler_config)
         self.worker_client = WorkerClient.make_client(self.config.worker_client_config)
         self._running = False
@@ -242,7 +244,7 @@ class AsyncBrowserEngineAsyncClient(BrowserEngine):
         self.task_id_to_identity = {}
         self.zmq = zmq.asyncio.Context(io_threads=1)
         self.socket = make_zmq_socket(
-            self.zmq, "ipc://app_to_engine.sock", zmq.ROUTER, bind=True
+            self.zmq, self.engine_config["app_to_engine_socket"], zmq.ROUTER, bind=True
         )
 
         self.encoder = MsgpackEncoder()

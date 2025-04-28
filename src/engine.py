@@ -36,7 +36,7 @@ class BrowserEngine:
         """Initialize the browser engine with the specified configuration"""
         self.config = config
         self.scheduler = make_scheduler(self.config.scheduler_config)
-        self.worker_client: WorkerClient = make_client(self.config.worker_client_config)
+        self.worker_client = WorkerClient.make_client(self.config.worker_client_config)
         self._running = False
 
         self.waiting_queue = queue.Queue()
