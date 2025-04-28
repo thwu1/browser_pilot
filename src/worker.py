@@ -787,7 +787,7 @@ class AsyncBrowserWorker:
         # Get observation
         try:
             params = params or {}
-            result = {}
+            result = None
 
             if observation_type == "html":
                 page = await self._get_page(context_id, params.get("page_id"))
@@ -937,6 +937,10 @@ class AsyncBrowserWorkerProc:
             self.ctx, self.output_path, zmq.PUSH, bind=False
         )
 
+        self.worker_status_socket = make_zmq_socket(
+            self.ctx, "ipc://worker_status.sock", zmq.PUSH, bind=False
+        )
+
         self.worker = AsyncBrowserWorker(index)
         self.encoder = MsgpackEncoder()
         self.decoder = MsgpackDecoder()
@@ -972,7 +976,7 @@ class AsyncBrowserWorkerProc:
                 worker.process_task_queue_loop(),
                 proc.process_incoming_socket_loop(),
                 proc.process_outgoing_socket_loop(),
-                # proc.send_heartbeat_loop(),
+                proc.send_heartbeat_loop(),
             ]
             await asyncio.gather(*tasks)
 
@@ -1092,6 +1096,9 @@ class AsyncBrowserWorkerProc:
                 prev_time = current_time
 
                 await self._send([status.to_dict()], MsgType.STATUS)
+                await self.worker_status_socket.send_multipart(
+                    [self.identity, MsgType.STATUS, self.encoder(status.to_dict())]
+                )
                 logger.debug(
                     f"Heartbeat worker {self.worker.index}: "
                     + f"CPU: {status.cpu_usage_percent:.1f}%, "
@@ -1113,4 +1120,5 @@ class AsyncBrowserWorkerProc:
         self.worker.shutdown()
         self.input_socket.close()
         self.output_socket.close()
+        self.worker_status_socket.close()
         self.ctx.term()
