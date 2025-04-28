@@ -698,7 +698,7 @@ class AsyncBrowserWorker:
                 }
             elif command == "browser_observation":
                 observation = await self._get_observation(
-                    context_id, params["observation_type"], params
+                    context_id, page_id, params["observation_type"], params
                 )
                 result = {
                     "success": True,
@@ -756,7 +756,11 @@ class AsyncBrowserWorker:
         self.num_pages -= 1
 
     async def _get_observation(
-        self, context_id: str, observation_type: str, params: Dict[str, Any] = None
+        self,
+        context_id: str,
+        page_id: str,
+        observation_type: str,
+        params: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         """
         Get an observation from the specified context
@@ -790,14 +794,12 @@ class AsyncBrowserWorker:
             result = None
 
             if observation_type == "html":
-                page = await self._get_page(context_id, params.get("page_id"))
-                content = await page.content()
-                result = content
+                page, page_id = await self._get_page(context_id, page_id)
+                result = await page.content()
 
             elif observation_type == "accessibility":
-                page = await self._get_page(context_id, params.get("page_id"))
-                accessibility = await page.accessibility.snapshot()
-                result = accessibility
+                page, page_id = await self._get_page(context_id, page_id)
+                result = await page.accessibility.snapshot()
             else:
                 raise ValueError(f"Unknown observation type: {observation_type}")
 
@@ -895,7 +897,8 @@ class AsyncBrowserWorker:
         if not page_id:
             if not context_info.pages:
                 return await self._get_or_create_page(context_id)
-            return next(iter(context_info.pages.values()))
+            page_id, page = next(iter(context_info.pages.items()))
+            return page, page_id
 
         if page_id not in context_info.pages:
             raise ValueError(f"Page {page_id} not found in context {context_id}")
