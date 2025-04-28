@@ -180,10 +180,6 @@ class AsyncBrowserWorker:
                 logger.error(f"Error in task processor: {str(e)}")
                 await asyncio.sleep(0.1)  # Brief pause to avoid CPU spinning
 
-    # async def _execute_task_with_sema(self, task: BrowserWorkerTask):
-    #     async with self._task_sema:
-    #         await self._execute_task(task)
-
     async def _execute_task(self, task: BrowserWorkerTask):
         """Execute a single task and put result in result queue"""
         try:
@@ -192,15 +188,19 @@ class AsyncBrowserWorker:
             result = await self.execute_command(
                 task.context_id, task.page_id, task.command, task.params
             )
-
+            logger.info(f"Task {task.task_id} finished with result: {result}")
             # Put result in the result queue
             finish_timestamp = time.time()
+            context_id = result.pop("context_id", None)
+            page_id = result.pop("page_id", None)
+            success = result.pop("success", False)
             self.output_queue.put_nowait(
                 {
                     "task_id": task.task_id,
-                    "page_id": result.get("page_id", None),
+                    "page_id": page_id,
+                    "context_id": context_id,
                     "result": result,
-                    "success": True,
+                    "success": success,
                     "profile": {
                         "engine_recv_timestamp": task.engine_recv_timestamp,
                         "engine_send_timestamp": task.engine_send_timestamp,
@@ -431,9 +431,15 @@ class AsyncBrowserWorker:
                 context_info.state = ContextState.ACTIVE
                 context_info.last_activity_time = time.time()
 
+            elif command == "create_page":
+                page, page_id = await self._get_or_create_page(
+                    context_id, page_id=page_id
+                )
+                result = {"success": True, "page_id": page_id, "context_id": context_id}
+
             elif command == "browser_navigate":
                 page, page_id = await self._get_or_create_page(
-                    context_id, params.get("page_id")
+                    context_id, page_id=page_id
                 )
                 # Use 'load' state and timeout
                 wait_until = params.get("wait_until", "load")
@@ -449,7 +455,7 @@ class AsyncBrowserWorker:
                 }
 
             elif command == "browser_navigate_back":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 timeout = params.get("timeout", 2000)
                 await page.go_back()
                 try:
@@ -467,7 +473,7 @@ class AsyncBrowserWorker:
                 }
 
             elif command == "browser_navigate_forward":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 timeout = params.get("timeout", 2000)
                 await page.go_forward()
                 try:
@@ -485,7 +491,7 @@ class AsyncBrowserWorker:
                 }
 
             elif command == "browser_click":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 timeout = params.get("timeout", 2000)
 
                 # Clicking might trigger navigation
@@ -532,7 +538,7 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
 
             elif command == "browser_type":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 timeout = params.get("timeout", 2000)
 
                 # There's a possibility that typing might trigger form submission
@@ -584,7 +590,7 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
 
             elif command == "browser_press_key":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 timeout = params.get("timeout", 2000)
 
                 # Keys that commonly trigger navigation
@@ -619,7 +625,7 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
 
             elif command == "browser_file_upload":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 if "selector" in params:
                     element_handle = await page.query_selector(params["selector"])
                     await element_handle.set_input_files(params["paths"])
@@ -633,7 +639,7 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
 
             elif command == "browser_pdf_save":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 pdf_options = {k: v for k, v in params.items() if k != "page_id"}
                 pdf_data = await page.pdf(**pdf_options)
                 result = {
@@ -649,7 +655,7 @@ class AsyncBrowserWorker:
                 result = {"success": True, "page_id": page_id, "context_id": context_id}
 
             elif command == "browser_close":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 await self._close_page(page)
                 # Remove page from pages dictionary
                 for page_id, p in list(context_info.pages.items()):
@@ -662,7 +668,7 @@ class AsyncBrowserWorker:
                 result = {"success": True, "context_id": context_id}
 
             elif command == "browser_screenshot":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 # Convert camelCase params to snake_case for Playwright compatibility
                 screenshot_params = {}
                 for k, v in params.items():
@@ -682,7 +688,7 @@ class AsyncBrowserWorker:
                 }
 
             elif command == "browser_evaluate":
-                page, page_id = await self._get_page(context_id, params.get("page_id"))
+                page, page_id = await self._get_page(context_id, page_id=page_id)
                 eval_result = await page.evaluate(params["script"], params.get("arg"))
                 result = {
                     "success": True,
@@ -786,12 +792,12 @@ class AsyncBrowserWorker:
             if observation_type == "html":
                 page = await self._get_page(context_id, params.get("page_id"))
                 content = await page.content()
-                result = {"html": content}
+                result = content
 
             elif observation_type == "accessibility":
                 page = await self._get_page(context_id, params.get("page_id"))
                 accessibility = await page.accessibility.snapshot()
-                result = {"accessibility": accessibility}
+                result = accessibility
             else:
                 raise ValueError(f"Unknown observation type: {observation_type}")
 
@@ -859,10 +865,10 @@ class AsyncBrowserWorker:
         if not context_info.browser_context:
             raise ValueError(f"No browser context available for {context_id}")
 
-        page_id = page_id or str(uuid.uuid4())
+        page_id = page_id if page_id else str(uuid.uuid4())
 
         if page_id in context_info.pages:
-            return context_info.pages[page_id]
+            return context_info.pages[page_id], page_id
 
         page = await context_info.browser_context.new_page()
         context_info.pages[page_id] = page
@@ -996,7 +1002,6 @@ class AsyncBrowserWorkerProc:
                 tasks = await self._recv()
                 assert len(tasks) > 0, "Received empty tasks, this should not happen"
 
-                # recv_time = time.time()
                 for task in tasks:
                     task = BrowserWorkerTask(**task)
                     task.worker_recv_timestamp = time.time()
