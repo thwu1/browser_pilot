@@ -7,7 +7,6 @@ import yaml
 
 from async_engine import BrowserEngine
 from engine import BrowserEngineConfig
-from scheduler import SchedulerType
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

@@ -3,6 +3,7 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from enum import Enum
 from typing import Any, Dict, Optional
 
 import uvicorn
@@ -97,12 +98,20 @@ class TaskRequest(BaseModel):
     params: Optional[Dict[str, Any]] = None
 
 
+class TaskStatus(str, Enum):
+    FINISHED = "finished"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    ERROR = "error"
+
+
 class TaskStatusResponse(BaseModel):
     """Response model for task status"""
 
-    task_id: str
+    # task_id: str
     status: str
     result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
 
 
 async def recv_result(socket: zmq.asyncio.Socket, task_id: str):
@@ -136,16 +145,25 @@ async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
 
     try:
         result = await asyncio.wait_for(recv_result(socket, task_id), timeout=timeout)
-        await sockets.put(socket)
-        socket = None
-        final_time = time.time()
-        result["profile"]["app_init_timestamp"] = initial_time
-        result["profile"]["app_recv_timestamp"] = final_time
-        return TaskStatusResponse(task_id=task_id, status="finished", result=result)
+        success = result.pop("success", False)
+        if success:
+            await sockets.put(socket)
+            socket = None
+            final_time = time.time()
+            result["profile"]["app_init_timestamp"] = initial_time
+            result["profile"]["app_recv_timestamp"] = final_time
+            result.pop("task_id")
+            return TaskStatusResponse(status=TaskStatus.FINISHED, result=result)
+        else:
+            result.pop("task_id")
+            return TaskStatusResponse(status=TaskStatus.FAILED, error=result["error"])
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=408, detail="Task timed out")
+        return TaskStatusResponse(status=TaskStatus.TIMEOUT, error="Task timed out")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+        return TaskStatusResponse(
+            status=TaskStatus.ERROR,
+            error=f"An error occurred: {str(e)}",
+        )
     finally:
         if socket:
             await sockets.put(socket)

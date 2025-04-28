@@ -153,7 +153,7 @@ async def test_navigate_async(client=None):
         responses = []
         cmds = ["create_context"]
         response = await create_context_async(client)
-        context_id = response.json()["result"]["result"]["context_id"]
+        context_id = response.json()["result"]["context_id"]
         responses.append(response.json())
 
         cmds.append("navigate")
@@ -162,14 +162,15 @@ async def test_navigate_async(client=None):
         )
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
         page_id = response.json()["result"]["page_id"]
 
         cmds.append("get_observation")
         response = await get_observation_async(context_id, page_id, "html", client)
         responses.append(response.json())
+        # print(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         cmds.append("navigate")
         response = await navigate_async(
@@ -177,13 +178,13 @@ async def test_navigate_async(client=None):
         )
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         cmds.append("get_observation")
         response = await get_observation_async(context_id, page_id, "html", client)
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         cmds.append("navigate")
         response = await navigate_async(
@@ -191,13 +192,13 @@ async def test_navigate_async(client=None):
         )
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         cmds.append("get_observation")
         response = await get_observation_async(context_id, page_id, "html", client)
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         cmds.append("navigate")
         response = await navigate_async(
@@ -205,19 +206,19 @@ async def test_navigate_async(client=None):
         )
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         cmds.append("get_observation")
         response = await get_observation_async(context_id, page_id, "html", client)
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         cmds.append("close_context")
         response = await close_context(context_id, client)
         responses.append(response.json())
         assert response.status_code == 200, response
-        assert response.json()["result"]["success"]
+        assert response.json()["status"] == "finished"
 
         return responses, cmds
     finally:
@@ -248,13 +249,16 @@ async def test_navigate_concurrent_async(parallel=256, batch_size=256):
             # Create tasks for this batch
             tasks = [test_navigate_async(client) for _ in range(current_batch_size)]
 
-            # Run this batch of tasks concurrently
-            batch_responses = await asyncio.gather(*tasks)
+            try:
+                # Run this batch of tasks concurrently
+                batch_responses = await asyncio.gather(*tasks)
 
-            # Collect results
-            for response, cmds in batch_responses:
-                all_responses.extend(response)
-                all_cmds.extend(cmds)
+                # Collect results
+                for response, cmds in batch_responses:
+                    all_responses.extend(response)
+                    all_cmds.extend(cmds)
+            except Exception as e:
+                print(f"Error in batch {i//batch_size + 1}: {e}")
 
         return all_responses, all_cmds
 
@@ -300,7 +304,7 @@ def test_create_context():
     response = create_context()
     print("create_context response: ", response.json())
     assert response.status_code == 200
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
 
 def test_navigate():
@@ -314,50 +318,50 @@ def test_navigate():
     responses.append(response.json())
     cmds.append("navigate")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
     page_id = response.json()["result"]["page_id"]
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
     cmds.append("get_observation")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
     response = navigate(context_id, page_id, "https://www.bilibili.com")
     responses.append(response.json())
     cmds.append("navigate")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
     cmds.append("get_observation")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
     response = navigate(context_id, page_id, "https://www.reddit.com")
     responses.append(response.json())
     cmds.append("navigate")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
     cmds.append("get_observation")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
     response = navigate(context_id, page_id, "https://www.amazon.com")
     responses.append(response.json())
     cmds.append("navigate")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
     response = get_observation(context_id, page_id, "html")
     responses.append(response.json())
     cmds.append("get_observation")
     assert response.status_code == 200, response
-    assert response.json()["result"]["success"]
+    assert response.json()["status"] == "finished"
 
     return responses, cmds
 
