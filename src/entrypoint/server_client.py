@@ -105,6 +105,15 @@ class TaskStatusResponse(BaseModel):
     result: Optional[Dict[str, Any]] = None
 
 
+async def recv_result(socket: zmq.asyncio.Socket, task_id: str):
+    # flush the socket until desired task_id is received
+    while True:
+        result_bytes = await socket.recv_multipart()
+        result = decoder(result_bytes[1])
+        if result["task_id"] == task_id:
+            return result
+
+
 @app.post("/send_and_wait", response_model=TaskStatusResponse)
 async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
     """Send a task and wait for its result"""
@@ -126,8 +135,7 @@ async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
     await socket.send_multipart([MsgType.TASK, task_bytes])
 
     try:
-        result_bytes = await asyncio.wait_for(socket.recv_multipart(), timeout=timeout)
-        result = decoder(result_bytes[1])
+        result = await asyncio.wait_for(recv_result(socket, task_id), timeout=timeout)
         await sockets.put(socket)
         socket = None
         final_time = time.time()
