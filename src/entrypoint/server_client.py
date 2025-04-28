@@ -11,7 +11,7 @@ import uvloop
 import yaml
 import zmq
 import zmq.asyncio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 from utils import (
@@ -41,11 +41,13 @@ encoder = MsgpackEncoder()
 decoder = MsgpackDecoder()
 
 config = yaml.safe_load(open("src/entrypoint/config.yaml"))
+status_socket = None
+num_workers = config["worker_client_config"]["num_workers"]
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global ctx, sockets
+    global ctx, sockets, status_socket
     ctx = zmq.asyncio.Context(io_threads=1)
     sockets = asyncio.Queue()
     for _ in range(num_sockets):
@@ -58,6 +60,9 @@ async def lifespan(_: FastAPI):
                 identity=str(uuid.uuid4().hex[:8]).encode(),
             )
         )
+    status_socket = make_zmq_socket(
+        ctx, "ipc://worker_status.sock", zmq.PULL, bind=True
+    )
     logger.info(f"Created {num_sockets} sockets for engine")
     try:
         yield
@@ -170,7 +175,7 @@ async def send_and_wait(task_request: TaskRequest, timeout: int = 60):
 
 
 if __name__ == "__main__":
-    # uvicorn src.entrypoint.server_client:app --host 0.0.0.0 --port 9999 --workers 4
+    # uvicorn src.entrypoint.server_client:app --host 0.0.0.0 --port 9999 --workers 4 --loop uvloop
 
     uvicorn.run(
         "src.entrypoint.server_client:app",

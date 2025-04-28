@@ -920,12 +920,16 @@ class AsyncBrowserWorkerProc:
         input_path: str,
         output_path: str,
         report_cpu_and_memory: bool = False,
+        monitor: bool = True,
+        monitor_path: str = "ipc://worker_status.sock",
     ):
         self.index = index
         self.identity = str(index).encode()
         self.input_path = input_path
         self.output_path = output_path
         self.report_cpu_and_memory = report_cpu_and_memory
+        self.monitor = monitor
+        self.monitor_path = monitor_path
         logger.info(f"Initializing AsyncBrowserWorkerProc {index}")
 
         self.ctx = zmq.asyncio.Context(io_threads=1)
@@ -939,10 +943,10 @@ class AsyncBrowserWorkerProc:
         self.output_socket = make_zmq_socket(
             self.ctx, self.output_path, zmq.PUSH, bind=False
         )
-
-        self.worker_status_socket = make_zmq_socket(
-            self.ctx, "ipc://worker_status.sock", zmq.PUSH, bind=False
-        )
+        if self.monitor:
+            self.worker_status_socket = make_zmq_socket(
+                self.ctx, self.monitor_path, zmq.PUSH, bind=False
+            )
 
         self.worker = AsyncBrowserWorker(index)
         self.encoder = MsgpackEncoder()
@@ -955,7 +959,15 @@ class AsyncBrowserWorkerProc:
         )
 
     @classmethod
-    def run_background_loop(cls, index: int, input_path: str, output_path: str):
+    def run_background_loop(
+        cls,
+        index: int,
+        input_path: str,
+        output_path: str,
+        report_cpu_and_memory: bool = False,
+        monitor: bool = True,
+        monitor_path: str = "ipc://worker_status.sock",
+    ):
         """
         Run a worker process in the background with ZMQ communication
 
@@ -964,7 +976,14 @@ class AsyncBrowserWorkerProc:
             input_path: Path to receive tasks from
             output_path: Path to send results back to
         """
-        proc = cls(index, input_path, output_path)
+        proc = cls(
+            index,
+            input_path,
+            output_path,
+            report_cpu_and_memory,
+            monitor,
+            monitor_path,
+        )
         worker = proc.worker
 
         async def main_loop():
@@ -1099,9 +1118,10 @@ class AsyncBrowserWorkerProc:
                 prev_time = current_time
 
                 await self._send([status.to_dict()], MsgType.STATUS)
-                await self.worker_status_socket.send_multipart(
-                    [self.identity, MsgType.STATUS, self.encoder(status.to_dict())]
-                )
+                if self.monitor:
+                    await self.worker_status_socket.send_multipart(
+                        [self.identity, MsgType.STATUS, self.encoder(status.to_dict())]
+                    )
                 logger.debug(
                     f"Heartbeat worker {self.worker.index}: "
                     + f"CPU: {status.cpu_usage_percent:.1f}%, "
@@ -1123,5 +1143,6 @@ class AsyncBrowserWorkerProc:
         self.worker.shutdown()
         self.input_socket.close()
         self.output_socket.close()
-        self.worker_status_socket.close()
+        if self.monitor:
+            self.worker_status_socket.close()
         self.ctx.term()

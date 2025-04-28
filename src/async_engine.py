@@ -121,7 +121,7 @@ class AsyncBrowserEngineSyncClient(BrowserEngine):
                     continue
 
                 worker_status = self.worker_client.get_worker_status_no_wait()
-                logger.info(f"worker_status: {worker_status}")
+                logger.debug(f"worker_status: {worker_status}")
 
                 scheduled_tasks, scheduler_output = self.scheduler.schedule(
                     tasks, prev_workers, self.n_workers, worker_status

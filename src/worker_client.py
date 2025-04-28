@@ -43,18 +43,13 @@ logger = logging.getLogger(__name__)
 class WorkerClient(ABC):
     @staticmethod
     def make_client(config: Dict[str, Any]):
-        if config["type"] == "sync":
-            return SyncWorkerClient(
-                config["input_path"], config["output_path"], config["num_workers"]
-            )
-        elif config["type"] == "async":
-            return AsyncWorkerClient(
-                config["input_path"], config["output_path"], config["num_workers"]
-            )
+        worker_client_type = config.pop("type", "sync")
+        if worker_client_type == "sync":
+            return SyncWorkerClient(**config)
+        elif worker_client_type == "async":
+            return AsyncWorkerClient(**config)
         else:
-            raise ValueError(
-                f"Invalid worker client type: {config['worker_client_type']}"
-            )
+            raise ValueError(f"Invalid worker client type: {worker_client_type}")
 
     @abstractmethod
     def close(self): ...
@@ -85,10 +80,21 @@ class WorkerClient(ABC):
 
 
 class SyncWorkerClient(WorkerClient):
-    def __init__(self, input_path: str, output_path: str, num_workers: int):
+    def __init__(
+        self,
+        input_path: str,
+        output_path: str,
+        num_workers: int,
+        report_cpu_and_memory: bool = False,
+        monitor: bool = True,
+        monitor_path: str = "ipc://worker_status.sock",
+    ):
         self.input_path = input_path
         self.output_path = output_path
         self.num_workers = num_workers
+        self.report_cpu_and_memory = report_cpu_and_memory
+        self.monitor = monitor
+        self.monitor_path = monitor_path
 
         self.output_queue = queue.Queue()
 
@@ -117,7 +123,14 @@ class SyncWorkerClient(WorkerClient):
             # Create process for each worker
             process = mp.Process(
                 target=AsyncBrowserWorkerProc.run_background_loop,
-                args=(worker_id, self.input_path, self.output_path),
+                args=(
+                    worker_id,
+                    self.input_path,
+                    self.output_path,
+                    self.report_cpu_and_memory,
+                    self.monitor,
+                    self.monitor_path,
+                ),
                 daemon=True,
             )
             process.start()
@@ -234,10 +247,21 @@ class SyncWorkerClient(WorkerClient):
 
 
 class AsyncWorkerClient(WorkerClient):
-    def __init__(self, input_path: str, output_path: str, num_workers: int):
+    def __init__(
+        self,
+        input_path: str,
+        output_path: str,
+        num_workers: int,
+        report_cpu_and_memory: bool = False,
+        monitor: bool = True,
+        monitor_path: str = "ipc://worker_status.sock",
+    ):
         self.input_path = input_path
         self.output_path = output_path
         self.num_workers = num_workers
+        self.report_cpu_and_memory = report_cpu_and_memory
+        self.monitor = monitor
+        self.monitor_path = monitor_path
 
         self.output_queue = asyncio.Queue()
 
@@ -263,7 +287,14 @@ class AsyncWorkerClient(WorkerClient):
             # Create process for each worker
             process = mp.Process(
                 target=AsyncBrowserWorkerProc.run_background_loop,
-                args=(worker_id, self.input_path, self.output_path),
+                args=(
+                    worker_id,
+                    self.input_path,
+                    self.output_path,
+                    self.report_cpu_and_memory,
+                    self.monitor,
+                    self.monitor_path,
+                ),
                 daemon=True,
             )
             process.start()
@@ -284,7 +315,6 @@ class AsyncWorkerClient(WorkerClient):
             logger.info(f"All workers {self.num_workers} are ready")
 
     async def send(self, msg: List[Dict[str, Any]], index: int):
-        # with Timer("_send", log_file="timer_client_send.log"):
         await self._send(msg, index)
 
     def get_output_nowait(self):
