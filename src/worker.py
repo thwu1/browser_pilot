@@ -1138,8 +1138,32 @@ class AsyncBrowserWorkerProc:
             logger.error(f"Error in heartbeat loop: {e}")
             raise
 
+    async def _send_shutdown_status_async(self):
+        status = self.worker.get_status()
+        status.running = False
+        status.last_activity = time.time()
+        status.last_heartbeat = time.time()
+        await self._send([status.to_dict()], MsgType.STATUS)
+        if self.monitor:
+            await self.worker_status_socket.send_multipart(
+                [self.identity, MsgType.STATUS, self.encoder(status.to_dict())]
+            )
+
     def shutdown(self):
         logger.info(f"Shutting down worker {self.worker.index}")
+        try:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+            if loop:
+                if loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._send_shutdown_status_async(), loop
+                    )
+                    future.result()
+                else:
+                    asyncio.run(self._send_shutdown_status_async())
+        except Exception as e:
+            asyncio.run(self._send_shutdown_status_async())
+
         self.worker.shutdown()
         self.input_socket.close()
         self.output_socket.close()
