@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 MAX_EXPECTED_MEMORY_MB = 1024
 # Define a maximum error rate for scaling the bar (e.g., 10% = 0.1)
 MAX_EXPECTED_ERROR_RATE = 0.10  # 10%
+# Heartbeat timeout in seconds - consider worker disconnected after this time
+HEARTBEAT_TIMEOUT_SECONDS = 15
 # Global status dict
 worker_status = {}
 
@@ -132,9 +134,11 @@ def calculate_bar_width(value, max_value):
 async def status_html():
     """Display worker status as HTML table with auto-refresh"""
 
+    current_time = time.time()  # Get current time once for comparison
+
     # --- Calculate Summary Statistics ---
-    # (Calculation logic remains the same as before)
     active_workers = 0
+    disconnected_workers = 0  # Add counter for disconnected
     total_running_tasks = 0
     total_waiting_tasks = 0
     total_finished_tasks = 0
@@ -143,11 +147,23 @@ async def status_html():
     num_workers_for_avg = 0
     for worker_id, status in worker_status.items():
         is_running = status.get("running", False)
-        if is_running:
+        last_heartbeat = status.get("last_heartbeat")
+        is_disconnected = False
+        if last_heartbeat is not None:
+            if (current_time - last_heartbeat) > HEARTBEAT_TIMEOUT_SECONDS:
+                is_disconnected = True
+
+        if (
+            is_running and not is_disconnected
+        ):  # Only count truly active workers for averages
             active_workers += 1
             total_cpu_usage += safe_get(status, "cpu_usage_percent")
             total_memory_usage += safe_get(status, "memory_usage_mb")
             num_workers_for_avg += 1
+        elif is_disconnected:
+            disconnected_workers += 1
+
+        # Still include tasks from all reported workers
         total_running_tasks += safe_get(status, "num_running_tasks")
         total_waiting_tasks += safe_get(status, "num_waiting_tasks")
         total_finished_tasks += safe_get(status, "num_finished_tasks")
@@ -160,18 +176,42 @@ async def status_html():
     )
 
     # --- Build Table Rows ---
-    # (Row generation logic remains the same as before)
     table_rows = ""
     sorted_worker_ids = sorted(worker_status.keys(), key=lambda x: int(x))
     for worker_id in sorted_worker_ids:
         status = worker_status.get(worker_id, {})
         is_running = status.get("running", False)
-        status_text = "Running" if is_running else "Stopped"
-        status_class = "status-running" if is_running else "status-stopped"
-        row_class = "" if is_running else "worker-stopped"
+        last_heartbeat = status.get("last_heartbeat")
+
+        # Check if disconnected based on heartbeat
+        is_disconnected = False
+        if last_heartbeat is not None:
+            if (current_time - last_heartbeat) > HEARTBEAT_TIMEOUT_SECONDS:
+                is_disconnected = True
+        elif (
+            not is_running
+        ):  # Consider stopped workers without heartbeat as effectively disconnected
+            # Or you could treat them simply as 'Stopped' if preferred
+            # is_disconnected = True
+            pass
+
+        # Determine status text and class
+        if is_disconnected:
+            status_text = "Disconnected"
+            status_class = "status-disconnected"
+            row_class = "worker-disconnected"
+        elif is_running:
+            status_text = "Running"
+            status_class = "status-running"
+            row_class = ""
+        else:  # Not running and not considered disconnected (e.g., explicitly stopped)
+            status_text = "Stopped"
+            status_class = "status-stopped"
+            row_class = "worker-stopped"
+
         index = status.get("index", "N/A")
         last_activity_fmt = format_timestamp(status.get("last_activity"))
-        last_heartbeat_fmt = format_timestamp(status.get("last_heartbeat"))
+        last_heartbeat_fmt = format_timestamp(last_heartbeat)  # Use the variable
         running_t = safe_get(status, "num_running_tasks")
         waiting_t = safe_get(status, "num_waiting_tasks")
         finished_t = safe_get(status, "num_finished_tasks")
@@ -184,8 +224,12 @@ async def status_html():
         cpu_bar_width = calculate_bar_width(cpu_usage, 100)
         mem_bar_width = calculate_bar_width(mem_usage, MAX_EXPECTED_MEMORY_MB)
         error_bar_width = calculate_bar_width(error_rate, MAX_EXPECTED_ERROR_RATE)
+
+        # Apply faded style if disconnected
+        style_override = "opacity: 0.6;" if is_disconnected else ""
+
         table_rows += f"""
-        <tr class="{row_class}">
+        <tr class="{row_class}" style="{style_override}">
             <td>{index}</td>
             <td class="{status_class}"><span class="status-indicator"></span>{status_text}</td>
             <td>{tasks_str}</td>
@@ -228,7 +272,7 @@ async def status_html():
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         '''}
         <style>
-            /* --- NEW CSS BLOCK STARTS (with escaped {{ and }}) --- */
+            /* --- CSS BLOCK STARTS (with escaped {{ and }}) --- */
             :root {{
                 --primary-color: #4361ee;
                 --success-color: #2ecc71;
@@ -245,6 +289,7 @@ async def status_html():
                 --shadow-md: 0 4px 6px rgba(0,0,0,0.05);
                 --radius-sm: 4px;
                 --radius-md: 8px;
+                --disconnected-color: #a0aec0; /* Added grey for disconnected */
             }}
 
             * {{
@@ -314,6 +359,11 @@ async def status_html():
             .stat-card:hover {{
                 transform: translateY(-2px);
                 box-shadow: var(--shadow-md);
+            }}
+            
+            /* --- Add new stat card for disconnected workers --- */
+            .stat-card.disconnected {{
+                 border-left: 4px solid var(--disconnected-color); /* Add visual cue */
             }}
 
             .stat-title {{
@@ -423,6 +473,30 @@ async def status_html():
                 background-color: var(--danger-color);
                 box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2);
             }}
+            
+            /* --- Add Styles for Disconnected Status --- */
+            .status-disconnected {{
+                color: var(--disconnected-color);
+                font-weight: 600;
+            }}
+            .status-disconnected .status-indicator {{
+                background-color: var(--disconnected-color);
+                box-shadow: 0 0 0 2px rgba(160, 174, 192, 0.2); /* Grey shadow */
+            }}
+            .worker-disconnected td {{
+                color: var(--text-muted);
+                opacity: 0.7; /* Slightly fade disconnected rows */
+            }}
+            .worker-disconnected .status-disconnected {{
+                color: var(--disconnected-color);
+                opacity: 1; /* Keep status text fully visible */
+            }}
+            .worker-disconnected:nth-child(even) {{
+                background-color: rgba(237, 242, 247, 0.4); /* Slightly different even bg */
+            }}
+            .worker-disconnected:hover {{
+                background-color: rgba(226, 232, 240, 0.6); /* Slightly different hover */
+            }}
 
             .worker-stopped td {{
                 color: var(--text-muted);
@@ -499,7 +573,7 @@ async def status_html():
                     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
                 }}
             }}
-            /* --- NEW CSS BLOCK ENDS --- */
+            /* --- CSS BLOCK ENDS --- */
         </style>
     </head>
     <body>
@@ -513,6 +587,10 @@ async def status_html():
                 <div class="stat-card">
                     <div class="stat-title">Active Workers</div>
                     <div class="stat-value">{active_workers}</div>
+                </div>
+                <div class="stat-card disconnected">
+                    <div class="stat-title">Disconnected Workers</div>
+                    <div class="stat-value">{disconnected_workers}</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-title">Total Tasks (R/W/F)</div>
