@@ -74,16 +74,17 @@ class TaskTracker:
                 or stats["num_pending"] > 0
             ):
                 avg_time = (
-                    stats["total_duration"] / stats["total_completed"]
+                    (stats["total_duration"] * 1000) / stats["total_completed"]
                     if stats["total_completed"] > 0
                     else 0
                 )
 
                 endpoint_stats[endpoint] = {
                     "pending_tasks": stats["num_pending"],
+                    "completed_tasks": stats["total_completed"],
                     "total_completed": stats["total_completed"],
                     "total_failed": stats["total_failed"],
-                    "average_completion_time": avg_time,
+                    "avg_completion_time": avg_time,
                     "total_tasks_historical": stats["total_completed"]
                     + stats["total_failed"],
                 }
@@ -138,7 +139,7 @@ def test_task_tracker():
     assert status["endpoint1"]["pending_tasks"] == 1
     assert status["endpoint1"]["total_completed"] == 1
     assert status["endpoint1"]["total_failed"] == 0
-    assert status["endpoint1"]["average_completion_time"] > 0
+    assert status["endpoint1"]["avg_completion_time"] > 0
 
     # Test failed task
     tracker.complete_task("conn1", "task2", False)
