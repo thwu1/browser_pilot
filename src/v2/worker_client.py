@@ -30,7 +30,7 @@ from utils import (
     ZstdMsgpackEncoder,
     make_zmq_socket,
 )
-from worker import AsyncBrowserWorkerProc
+from worker.worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(
     level=logging.ERROR,

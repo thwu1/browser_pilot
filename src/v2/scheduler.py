@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from type.scheduler_type import SchedulerOutput, SchedulerType
-from worker import BrowserWorkerTask
+from worker.worker import BrowserWorkerTask
 
 """
 Define the output of the scheduler

@@ -15,7 +15,7 @@ import zmq
 from scheduler import make_scheduler
 from type.scheduler_type import SchedulerOutput, SchedulerType
 from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket
-from worker import BrowserWorkerTask
+from worker.worker import BrowserWorkerTask
 from worker_client import WorkerClient
 
 logger = logging.getLogger(__name__)
