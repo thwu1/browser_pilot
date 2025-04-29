@@ -6,6 +6,7 @@ import pandas as pd
 import uvloop
 from playwright.async_api import async_playwright
 
+
 async def setup(endpoint):
     playwright = await async_playwright().start()
 

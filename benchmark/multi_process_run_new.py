@@ -7,8 +7,8 @@ import pandas as pd
 from benchmark_server_v1 import test_server_v1
 from benchmark_server_v2 import test_server_v2
 from multiprocess_async_playwright import test_async_playwright
-from multiprocess_sync_playwright import test_sync_playwright
 from multiprocess_async_playwright_server import test_async_playwright_server
+from multiprocess_sync_playwright import test_sync_playwright
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

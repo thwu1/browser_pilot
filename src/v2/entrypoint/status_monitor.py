@@ -1,22 +1,21 @@
 import asyncio
-from datetime import datetime
 import json
 import logging
+import math
 import signal
 import sys
 import time
-from typing import Dict, Any
+from datetime import datetime
+from typing import Any, Dict
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from sse_starlette.sse import EventSourceResponse
-import math
-
 import yaml
 import zmq
 import zmq.asyncio
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from sse_starlette.sse import EventSourceResponse
 from utils import MsgpackDecoder, MsgType, make_zmq_socket
 
 # Setup logging

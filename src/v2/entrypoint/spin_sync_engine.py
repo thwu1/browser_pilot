@@ -3,7 +3,6 @@ import logging
 import signal
 
 import uvloop
-
 from async_engine import AsyncBrowserEngine
 from engine import BrowserEngine, BrowserEngineConfig
 from scheduler import SchedulerType

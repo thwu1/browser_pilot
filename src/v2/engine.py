@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import zmq
-
 from scheduler import make_scheduler
 from type.scheduler_type import SchedulerOutput, SchedulerType
 from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket

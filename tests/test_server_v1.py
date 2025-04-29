@@ -26,7 +26,7 @@ BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}"
 @pytest.fixture(scope="module", autouse=True)
 def start_server():
     """Start the server before running tests"""
-    server_process = subprocess.Popen(["python", "src/entrypoint/server_v1.py"])
+    server_process = subprocess.Popen(["python", "src/v1/entrypoint/server_v1.py"])
 
     # Wait for server to be ready by checking health endpoint
     max_retries = 20

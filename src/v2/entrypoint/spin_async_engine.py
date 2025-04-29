@@ -4,7 +4,6 @@ import signal
 
 import uvloop
 import yaml
-
 from async_engine import BrowserEngine
 from engine import BrowserEngineConfig
 

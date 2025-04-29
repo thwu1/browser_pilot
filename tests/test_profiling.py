@@ -2,7 +2,6 @@ import asyncio
 import uuid
 
 import matplotlib
-
 from worker_client import WorkerClient
 
 matplotlib.use("Agg")

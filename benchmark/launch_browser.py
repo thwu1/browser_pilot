@@ -1,21 +1,17 @@
 import subprocess
-from contextlib import contextmanager
 import time
+from contextlib import contextmanager
+
 
 @contextmanager
-def launch_n_servers(num_servers:int):
+def launch_n_servers(num_servers: int):
     processes = []
     for i in range(num_servers):
         process = subprocess.Popen(
-            [
-                "playwright",
-                "run-server",
-                "--port", str(9213 + i),
-                "--host", "localhost"
-            ]
+            ["playwright", "run-server", "--port", str(9213 + i), "--host", "localhost"]
         )
         processes.append(process)
-    
+
     try:
         yield [f"ws://localhost:{9213 + i}" for i in range(num_servers)]
     finally:
@@ -31,7 +27,11 @@ def launch_n_servers(num_servers:int):
 
 
 if __name__ == "__main__":
-    with launch_n_servers(32) as endpoints:
-        print(endpoints)
-        time.sleep(1000000)
-
+    try:
+        with launch_n_servers(32) as endpoints:
+            print(endpoints)
+            # Replace sleep with infinite loop
+            while True:
+                time.sleep(60)  # Sleep in smaller intervals to be more responsive
+    except KeyboardInterrupt:
+        print("\nShutting down gracefully...")

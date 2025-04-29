@@ -8,7 +8,6 @@ from typing import Dict, List
 
 import zmq
 import zmq.asyncio
-
 from engine import BrowserEngineConfig, BrowserWorkerTask
 from scheduler import SchedulerOutput, make_scheduler
 from timer_util import Timer

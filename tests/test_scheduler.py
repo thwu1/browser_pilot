@@ -1,5 +1,4 @@
 import pytest
-
 from scheduler import (
     RoundRobinScheduler,
     SchedulerOutput,

@@ -13,7 +13,6 @@ import zmq
 import zmq.asyncio
 from fastapi import FastAPI
 from pydantic import BaseModel
-
 from utils import (
     MsgpackDecoder,
     MsgpackEncoder,
