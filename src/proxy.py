@@ -19,7 +19,9 @@ from task_tracker import TaskTracker
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("proxy.log")],
 )
 logger = logging.getLogger(__name__)
 
@@ -167,9 +169,7 @@ class ProxyServer:
                         data = json.loads(text_msg)
                         msg_id = data.get("id", "unknown")
                         msg_method = data.get("method", "unknown")
-                        logger.debug(
-                            f"Forwarding Playwright command: id={msg_id}, method={msg_method}"
-                        )
+                        logger.info(f"Forward: {text_msg}")
                         assert msg_id != "unknown"
                         self.task_tracker.register_task(
                             client_id, msg_id, target_endpoint
@@ -177,7 +177,7 @@ class ProxyServer:
                         await target_ws.send_str(text_msg)
                     elif "bytes" in message and message["bytes"]:
                         binary_msg = message["bytes"]
-                        logger.debug(
+                        logger.info(
                             f"Forwarding binary message: {len(binary_msg)} bytes"
                         )
                         self.task_tracker.register_data_message()
@@ -206,9 +206,6 @@ class ProxyServer:
                     msg_id = data.get("id", "unknown")
                     if "result" in data:
                         self.task_tracker.complete_task(client_id, msg_id, True)
-                        logger.debug(
-                            f"Forwarding Playwright response: id={msg_id}, success=true"
-                        )
                     elif "error" in data:
                         self.task_tracker.complete_task(client_id, msg_id, False)
                         error_msg = (
@@ -216,18 +213,13 @@ class ProxyServer:
                             .get("error", {})
                             .get("message", "unknown error")
                         )
-                        logger.debug(
-                            f"Forwarding Playwright response: id={msg_id}, success=false, error={error_msg}"
-                        )
                     else:
-                        logger.debug(
-                            f"Forwarding Playwright message: {msg.data[:100]}..."
-                        )
                         self.task_tracker.register_data_message()
+                    logger.info(f"Backward: {msg.data}")
                     await ws.send_text(msg.data)
                 elif msg.type == aiohttp.WSMsgType.BINARY:
                     self.task_tracker.register_data_message()
-                    logger.debug(f"Forwarding binary message: {len(msg.data)} bytes")
+                    logger.info(f"Forwarding binary message: {len(msg.data)} bytes")
                     await ws.send_bytes(msg.data)
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                     break
@@ -263,6 +255,10 @@ class ProxyServer:
 
             # Get subprotocols if any
             subprotocols = websocket.scope.get("subprotocols", [])
+
+            logger.info(
+                f"Connecting to target {target_endpoint} with headers: {client_headers} and subprotocols: {subprotocols}"
+            )
 
             # Connect with full headers and subprotocols
             session = aiohttp.ClientSession()
@@ -324,7 +320,7 @@ def create_app(target_endpoints: List[str]) -> FastAPI:
 # This will be used when --workers > 1
 # The 'factory=True' option in uvicorn.run() ensures this is called per worker
 # Get target endpoints from environment variables when running as worker
-default_start_port = int(os.environ.get("TARGET_START_PORT", "9213"))
+default_start_port = int(os.environ.get("TARGET_START_PORT", "9214"))
 default_count = int(os.environ.get("TARGET_ENDPOINTS_COUNT", "32"))
 default_target_endpoints = [
     f"ws://localhost:{port}"
@@ -342,7 +338,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target-start-port",
         type=int,
-        default=9213,
+        default=9214,
         help="Start port for target endpoints",
     )
     parser.add_argument(
