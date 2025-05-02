@@ -123,7 +123,7 @@ async def run_one_traj(browser, urls):
         return False
 
 
-async def _test_async_playwright(concurrency, endpoint):
+async def _test_async_playwright(concurrency, browser):
     urls = [
         "https://www.youtube.com",
         "https://www.bilibili.com",
@@ -167,7 +167,6 @@ async def _test_async_playwright(concurrency, endpoint):
         "https://www.glassdoor.com",
     ]
     start_time = time.time()
-    browser, playwright = await setup(endpoint)
     results = await asyncio.gather(
         *[run_one_traj(browser, urls[i * 4 : (i + 1) * 4]) for i in range(concurrency)]
     )
@@ -175,8 +174,6 @@ async def _test_async_playwright(concurrency, endpoint):
     print(
         f"Total time: {end_time - start_time} seconds, finished {sum([result != False for result in results])} trajectories"
     )
-    await browser.close()
-    await playwright.stop()
 
     durations = []
     cmds = []
@@ -192,12 +189,19 @@ async def _test_async_playwright(concurrency, endpoint):
 def test_async_playwright_server(concurrency, *args):
     # print(f"test_async_playwright_server {concurrency} {args}")
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-    return asyncio.run(_test_async_playwright(concurrency, *args))
+    return _test_async_playwright(concurrency, *args)
 
 
-# if __name__ == "__main__":
-#     test_async_playwright_server(8, "ws://localhost:8000")
-#     test_async_playwright_server(8, "ws://localhost:8000")
+if __name__ == "__main__":
+
+    async def main():
+        browser, playwright = await setup("ws://localhost:8000")
+        await test_async_playwright_server(1, browser)
+        await test_async_playwright_server(1, browser)
+        await browser.close()
+        await playwright.stop()
+
+    asyncio.run(main())
 
 # durations = []
 # cmds = []

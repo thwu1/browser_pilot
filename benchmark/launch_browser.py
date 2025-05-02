@@ -4,16 +4,34 @@ from contextlib import contextmanager
 
 
 @contextmanager
-def launch_n_servers(num_servers: int):
+def launch_n_servers(num_servers: int, type: str = "playwright"):
     processes = []
     for i in range(num_servers):
-        process = subprocess.Popen(
-            ["playwright", "run-server", "--port", str(9213 + i), "--host", "localhost"]
-        )
+        if type == "playwright":
+            process = subprocess.Popen(
+                [
+                    "playwright",
+                    "run-server",
+                    "--port",
+                    str(9214 + i),
+                    "--host",
+                    "localhost",
+                ]
+            )
+        elif type == "cdp":
+            process = subprocess.Popen(
+                [
+                    "/home/tianhao/.cache/ms-playwright/chromium_headless_shell-1161/chrome-linux/headless_shell",
+                    "--no-sandbox",
+                    "--user-data-dir=/tmp/pw-chrome-cdp-profile-{}".format(i),
+                    "--headless",
+                    f"--remote-debugging-port={9214+i}",
+                ]
+            )
         processes.append(process)
 
     try:
-        yield [f"ws://localhost:{9213 + i}" for i in range(num_servers)]
+        yield [f"ws://localhost:{9214 + i}" for i in range(num_servers)]
     finally:
         for process in processes:
             process.send_signal(subprocess.signal.SIGINT)  # Send CTRL+C (SIGINT)
@@ -27,8 +45,14 @@ def launch_n_servers(num_servers: int):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--type", type=str, default="playwright")
+    parser.add_argument("--n", type=int, default=1)
+    args = parser.parse_args()
     try:
-        with launch_n_servers(32) as endpoints:
+        with launch_n_servers(args.n, args.type) as endpoints:
             print(endpoints)
             # Replace sleep with infinite loop
             while True:

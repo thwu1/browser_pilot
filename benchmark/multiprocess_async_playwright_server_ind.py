@@ -1,22 +1,21 @@
 import asyncio
 import os
+import random
 import time
 
 import pandas as pd
 import uvloop
 from playwright.async_api import async_playwright
-import random
+
+timeout = 240000
 
 
 async def setup(endpoint):
     playwright = await async_playwright().start()
 
-    browser = await playwright.chromium.connect(endpoint)
+    browser = await playwright.chromium.connect(endpoint, timeout=timeout)
 
     return browser, playwright
-
-
-timeout = 240000
 
 
 async def create_context(context_options, browser):
@@ -84,14 +83,59 @@ async def get_observation(page, observation_type="html"):
         raise ValueError(f"Unknown observation type: {observation_type}")
 
 
-async def run_one_traj(browser, urls):
+async def run_one_traj(endpoint, urls):
+    # urls = [
+    #     "https://www.youtube.com",
+    #     "https://www.bilibili.com",
+    #     "https://www.reddit.com",
+    #     "https://www.amazon.com",
+    #     "https://www.google.com",
+    #     "https://www.facebook.com",
+    #     "https://www.twitter.com",
+    #     "https://www.instagram.com",
+    #     "https://www.netflix.com",
+    #     "https://www.microsoft.com",
+    #     "https://www.apple.com",
+    #     "https://www.yahoo.com",
+    #     "https://www.wikipedia.org",
+    #     "https://www.linkedin.com",
+    #     "https://www.github.com",
+    #     "https://www.stackoverflow.com",
+    #     "https://www.twitch.tv",
+    #     "https://www.pinterest.com",
+    #     "https://www.ebay.com",
+    #     "https://www.walmart.com",
+    #     "https://www.nytimes.com",
+    #     "https://www.cnn.com",
+    #     "https://www.tiktok.com",
+    #     "https://www.spotify.com",
+    #     "https://www.discord.com",
+    #     "https://www.whatsapp.com",
+    #     "https://www.zoom.us",
+    #     "https://www.dropbox.com",
+    #     "https://www.medium.com",
+    #     "https://www.quora.com",
+    #     "https://www.tumblr.com",
+    #     "https://www.vimeo.com",
+    #     "https://www.dailymotion.com",
+    #     "https://www.craigslist.org",
+    #     "https://www.imdb.com",
+    #     "https://www.yelp.com",
+    #     "https://www.etsy.com",
+    #     "https://www.alibaba.com",
+    #     "https://www.indeed.com",
+    #     "https://www.glassdoor.com",
+    # ]
+    # random.shuffle(urls)
     try:
+        browser, playwright = await setup(endpoint)
         cmds = ["create_context"]
         times = [time.time()]
         context = await create_context({}, browser=browser)
         times.append(time.time())
         cmds.append("navigate")
         page = await navigate(context, None, urls[0])
+        page.set_default_navigation_timeout(timeout)
         times.append(time.time())
         cmds.append("get_observation")
         observation = await get_observation(page)
@@ -100,6 +144,7 @@ async def run_one_traj(browser, urls):
         page = await navigate(context, page, urls[1])
         times.append(time.time())
         cmds.append("get_observation")
+        browser.contexts
         observation = await get_observation(page)
         times.append(time.time())
         cmds.append("navigate")
@@ -117,10 +162,21 @@ async def run_one_traj(browser, urls):
         cmds.append("close_context")
         await context.close()
         times.append(time.time())
+        await browser.close()
+        await playwright.stop()
+        browser = None
+        playwright = None
         return times, cmds
     except Exception as e:
-        print(f"Error in run_one_traj: {e}")
-        return False
+        print(f"Error in run_one_traj: {e}, trying to close browser and playwright")
+        try:
+            if browser is not None:
+                await browser.close()
+            if playwright is not None:
+                await playwright.stop()
+        except Exception as e:
+            print(f"Error in closing browser and playwright: {e}")
+        return [], []
 
 
 async def _test_async_playwright(concurrency, endpoint):
@@ -167,16 +223,13 @@ async def _test_async_playwright(concurrency, endpoint):
         "https://www.glassdoor.com",
     ]
     start_time = time.time()
-    browser, playwright = await setup(endpoint)
     results = await asyncio.gather(
-        *[run_one_traj(browser, urls[i * 4 : (i + 1) * 4]) for i in range(concurrency)]
+        *[run_one_traj(endpoint, urls[4 * i : 4 * (i + 1)]) for i in range(concurrency)]
     )
     end_time = time.time()
     print(
         f"Total time: {end_time - start_time} seconds, finished {sum([result != False for result in results])} trajectories"
     )
-    await browser.close()
-    await playwright.stop()
 
     durations = []
     cmds = []
@@ -189,15 +242,14 @@ async def _test_async_playwright(concurrency, endpoint):
     return pd.DataFrame({"cmds": cmds, "duration": durations, "start_time": start_time})
 
 
-def test_async_playwright_server(concurrency, *args):
-    # print(f"test_async_playwright_server {concurrency} {args}")
+def test_async_playwright_server_ind(concurrency, *args):
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     return asyncio.run(_test_async_playwright(concurrency, *args))
 
 
 # if __name__ == "__main__":
-#     test_async_playwright_server(8, "ws://localhost:8000")
-#     test_async_playwright_server(8, "ws://localhost:8000")
+#     test_async_playwright_server_ind(8, "ws://127.0.0.1:8000")
+
 
 # durations = []
 # cmds = []
