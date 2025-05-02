@@ -267,16 +267,16 @@ class NtoMProxy:
                 )
 
     def parse_guid_from_nested_data(self, data: Union[dict, list], ls: List[str]):
-        if not isinstance(data, dict) and not isinstance(data, list):
-            return
         if isinstance(data, dict):
             if "guid" in data and data["guid"] != "":
                 ls.append(data["guid"])
             for v in data.values():
-                self.parse_guid_from_nested_data(v, ls)
+                if isinstance(v, dict) or isinstance(v, list):
+                    self.parse_guid_from_nested_data(v, ls)
         elif isinstance(data, list):
             for item in data:
-                self.parse_guid_from_nested_data(item, ls)
+                if isinstance(item, dict) or isinstance(item, list):
+                    self.parse_guid_from_nested_data(item, ls)
 
     async def response_type(self, data: dict):
         if data.get("id", None) is not None:
