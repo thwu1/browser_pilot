@@ -1,22 +1,22 @@
 import argparse
+import atexit
 import datetime
-import time
-from concurrent.futures import ProcessPoolExecutor, TimeoutError
+import os
 import signal
 import sys
-import atexit
-import os
-import psutil
+import time
+from concurrent.futures import ProcessPoolExecutor, TimeoutError
 
 import pandas as pd
+import psutil
 from benchmark_server_v1 import test_server_v1
 from benchmark_server_v2 import test_server_v2
+from multiprocess_async_cdp import test_async_cdp
+from multiprocess_async_cdp_ind import test_async_cdp_ind
 from multiprocess_async_playwright import test_async_playwright
 from multiprocess_async_playwright_server import test_async_playwright_server
 from multiprocess_async_playwright_server_ind import test_async_playwright_server_ind
 from multiprocess_sync_playwright import test_sync_playwright
-from multiprocess_async_cdp_ind import test_async_cdp_ind
-from multiprocess_async_cdp import test_async_cdp
 
 
 def cleanup_processes():

@@ -1,11 +1,11 @@
 import asyncio
 import os
+import random
 import time
 
 import pandas as pd
 import uvloop
 from playwright.async_api import async_playwright
-import random
 
 
 async def setup(endpoint):

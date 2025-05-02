@@ -9,14 +9,13 @@ from playwright.async_api import async_playwright
 
 timeout = 240000
 
+
 async def setup(endpoint):
     playwright = await async_playwright().start()
 
     browser = await playwright.chromium.connect_over_cdp(endpoint)
 
     return browser, playwright
-
-
 
 
 async def create_context(context_options, browser):

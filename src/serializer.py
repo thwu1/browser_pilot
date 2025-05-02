@@ -1,8 +1,9 @@
-import orjson
 import json
+import random
 import re
 import time
-import random
+
+import orjson
 
 DEFAULT_SERIALIZER = "orjson"
 

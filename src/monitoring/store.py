@@ -10,7 +10,7 @@ import redis.asyncio as redis_async
 # docker run --name my-redis -d -p 6379:6379 redis
 
 # Constants
-HEARTBEAT_TIMEOUT = 15  # seconds
+HEARTBEAT_TIMEOUT = 60  # seconds
 CLEANUP_INTERVAL = 600  # seconds
 
 

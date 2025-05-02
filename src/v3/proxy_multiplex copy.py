@@ -1,25 +1,23 @@
 import argparse
 import asyncio
+from collections import defaultdict
+from serializer import Serializer
 import logging
 import os
-import random
 import time
-import uuid
-from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import aiohttp
+from fastapi.websockets import WebSocketState
 import uvicorn
-import uvloop
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.websockets import WebSocketState
 
 from monitoring.store import MonitorClient
-from serializer import Serializer
-from status_tracker import StatusTracker
+from v3.task_tracker import TaskTracker
 from util import get_worker_id
+import uvloop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,39 +35,22 @@ class ResponseType:
     ERROR = "error"
 
 
-REPORT_STATUS = True
-REPORT_INTERVAL = 15
-
-
 class NtoMProxy:
-    def __init__(
-        self, target_wss: List[str], port: int, report_status: bool = REPORT_STATUS
-    ):
+    def __init__(self, target_wss: List[str], port: int):
         self.target_wss = target_wss
         self.port = port
         self.persistent_session = None
         self.persistent_wss = [None] * len(target_wss)
         self.serializer = Serializer()
 
-        self.status_tracker = StatusTracker(
-            endpoints=target_wss, is_running=report_status
-        )  # for report
-        self.report_client = (
-            MonitorClient(identity=str(uuid.uuid4().hex)) if report_status else None
-        )
-
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             await self.start_connection()
             asyncio.create_task(self.request_consumer())
-            if self.report_client is not None:
-                asyncio.create_task(self.report_status())
             for tsid in range(len(self.target_wss)):
                 asyncio.create_task(self.response_consumer(tsid))
             yield
             await self.close_connection()
-            if self.report_client is not None:
-                await self.report_client.close()
 
         self.app = FastAPI(lifespan=lifespan)
         self.app.websocket("/")(self.connect)
@@ -187,9 +168,6 @@ class NtoMProxy:
         wsid = id(websocket)
         self.wsid_to_ws[wsid] = websocket
         tsid = await self.assign(wsid)
-        self.status_tracker.register_connection(self.target_wss[tsid])
-
-        errored = False
 
         try:
             while True:
@@ -202,11 +180,6 @@ class NtoMProxy:
                     if "text" in msg and msg["text"]:
                         text_msg = msg["text"]
                         data = self.serializer.loads(text_msg)
-                        local_id = data.get("id", None)
-                        if local_id is not None:
-                            self.status_tracker.register_task(
-                                wsid, (local_id, wsid), self.target_wss[tsid]
-                            )
                         await self.request_queue.put((wsid, tsid, data))
                     elif "bytes" in msg and msg["bytes"]:
                         logger.error(
@@ -216,17 +189,12 @@ class NtoMProxy:
                     else:
                         raise ValueError(f"Unknown message type: {msg}")
         except WebSocketDisconnect:
-            errored = True
             logger.debug(f"Client disconnected for wsid: {wsid}")
         except Exception as e:
-            errored = True
             logger.error(f"Error in connect: {e}")
             raise e
         finally:
             logger.debug(f"Client disconnected for wsid: {wsid}")
-            self.status_tracker.unregister_connection(
-                wsid, self.target_wss[tsid], "error" if errored else "finished"
-            )
             self.wsid_to_ws.pop(wsid)
             self.tsid_active_count[tsid] -= 1
             assert self.tsid_active_count[tsid] >= 0
@@ -246,7 +214,6 @@ class NtoMProxy:
             reply = self.serializer.loads(self.initialize_msg_reply[tsid][-1])
             reply["id"] = local_id
             await ws.send_text(self.serializer.dumps(reply))
-            self.status_tracker.complete_task(wsid, (local_id, wsid), True)
             return
 
         self.gids[tsid] += 1
@@ -272,7 +239,7 @@ class NtoMProxy:
     async def handle_response(self, msg: aiohttp.WSMsgType, tsid: int):
         if msg.type == aiohttp.WSMsgType.TEXT:
             data = self.serializer.loads(msg.data)
-            response_type = self.response_type(data)
+            response_type = await self.response_type(data)
             if response_type == ResponseType.RESULT:
                 local_id, wsid = self.gid_tsid_to_lid_wsid.pop((data["id"], tsid))
                 ws = self.wsid_to_ws[wsid]
@@ -283,7 +250,6 @@ class NtoMProxy:
                 data["id"] = local_id
                 logger.debug(f"BACKWARD: {data}")
                 await ws.send_text(self.serializer.dumps(data))
-                self.status_tracker.complete_task(wsid, (local_id, wsid), True)
             elif response_type == ResponseType.EVENT:
                 guids = []
                 self.parse_guid_from_nested_data(data, guids)
@@ -295,7 +261,6 @@ class NtoMProxy:
                 ws = self.wsid_to_ws[wsid]
                 logger.debug(f"BACKWARD: {data}")
                 await ws.send_text(msg.data)
-                self.status_tracker.register_data_message()
             elif response_type == ResponseType.ERROR:
                 logger.error(
                     f"Error: {data}, shouldn't happen as error should come with an id."
@@ -313,7 +278,7 @@ class NtoMProxy:
                 if isinstance(item, dict) or isinstance(item, list):
                     self.parse_guid_from_nested_data(item, ls)
 
-    def response_type(self, data: dict):
+    async def response_type(self, data: dict):
         if data.get("id", None) is not None:
             return ResponseType.RESULT
         elif data.get("method", None) is not None:
@@ -372,32 +337,19 @@ class NtoMProxy:
             try:
                 await self.handle_request(wsid, tsid, data)
             except Exception as e:
-                logger.error(
-                    f"Error in request_consumer for wsid={wsid}, tsid={tsid}, data={data}: {e}",
-                    exc_info=True,
-                )
+                logger.error(f"Error in request_consumer: {e}")
 
     async def response_consumer(self, tsid: int):
         async for msg in self.persistent_wss[tsid]:
             try:
                 await self.handle_response(msg, tsid)
             except Exception as e:
-                logger.error(
-                    f"Error in response_consumer for tsid={tsid}, msg={msg}: {e}",
-                    exc_info=True,
-                )
-
-    async def report_status(self):
-        while True:
-            await asyncio.sleep(REPORT_INTERVAL + random.random())
-            status = self.status_tracker.get_status()
-            logger.debug(f"Reporting status: {status}")
-            await self.report_client.set_status(status)
+                logger.error(f"Error in response_consumer: {e}")
 
 
 # uvicorn src.proxy_multiplex:app --host 0.0.0.0 --port 8000 --workers 8
 
-NUM_WORKERS = 4
+NUM_WORKERS = 8
 TOTAL_TARGETS = 32
 worker_id = get_worker_id() % NUM_WORKERS
 each_worker_num_targets = TOTAL_TARGETS // NUM_WORKERS

@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from monitoring.store import MonitorClient
-from task_tracker import TaskTracker
+from v3.task_tracker import TaskTracker
 
 # Configure logging
 logging.basicConfig(
