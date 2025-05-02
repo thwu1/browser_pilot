@@ -11,7 +11,7 @@ import redis.asyncio as redis_async
 
 # Constants
 HEARTBEAT_TIMEOUT = 15  # seconds
-CLEANUP_INTERVAL = 60  # seconds
+CLEANUP_INTERVAL = 600  # seconds
 
 
 class MonitorClient:
@@ -19,6 +19,14 @@ class MonitorClient:
         self.redis_client = redis_async.Redis(host="localhost", port=6379, db=0)
         self.identity = identity
         self.last_cleanup = time.time()
+
+    async def set_status(self, status: dict):
+        websocket_status = status["websocket"]
+        task_status = status["task"]
+        await asyncio.gather(
+            self.set_websocket_status(websocket_status),
+            self.set_task_tracker_status(task_status),
+        )
 
     async def set_websocket_status(self, status: dict):
         """Store websocket status using Redis hashes"""
@@ -265,5 +273,5 @@ if __name__ == "__main__":
         finally:
             await monitor_store.close()
 
-    redis.Redis(host="localhost", port=6379, db=0).flushall()
+    # redis.Redis(host="localhost", port=6379, db=0).flushall()
     asyncio.run(main())

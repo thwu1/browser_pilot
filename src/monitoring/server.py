@@ -38,8 +38,6 @@ async def get_status():
     """Get the current status of all workers"""
     try:
         websocket_status, task_status = await monitor_store.get_aggregated_status()
-        print(websocket_status)
-        print(task_status)
         return JSONResponse(
             {"websocket_status": websocket_status, "task_tracker_status": task_status}
         )
