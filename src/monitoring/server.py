@@ -51,5 +51,16 @@ async def shutdown_event():
     await monitor_store.close()
 
 
+@app.get("/health")
+async def health():
+    """Check if the server is healthy"""
+    return {"status": "ok"}
+
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8100)
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8100)
+    args = parser.parse_args()
+    uvicorn.run(app, host="0.0.0.0", port=args.port)

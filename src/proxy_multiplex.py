@@ -19,26 +19,30 @@ from fastapi.websockets import WebSocketState
 from monitoring.store import MonitorClient
 from serializer import Serializer
 from status_tracker import StatusTracker
-from util import get_worker_id
+from util import config_loader, get_worker_id
 
 logging.basicConfig(
     level=logging.INFO,
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("proxy_multiplex_8192.log"),
+        logging.FileHandler("proxy_multiplex.log"),
     ],
 )
 logger = logging.getLogger(__name__)
+
+config = config_loader()
+REPORT_STATUS = config["proxy"]["report_status"]
+REPORT_INTERVAL = config["proxy"]["report_interval"]
+NUM_WORKERS = config["proxy"]["num_workers"]
+TOTAL_TARGETS = config["server"]["num_servers"]
+PROXY_ENDPOINT = f"ws://localhost:{config['proxy']['port']}"
+SERVER_START_PORT = config["server"]["start_port"]
 
 
 class ResponseType:
     EVENT = "event"
     RESULT = "result"
     ERROR = "error"
-
-
-REPORT_STATUS = True
-REPORT_INTERVAL = 15
 
 
 class NtoMProxy:
@@ -397,17 +401,15 @@ class NtoMProxy:
 
 # uvicorn src.proxy_multiplex:app --host 0.0.0.0 --port 8000 --workers 8
 
-NUM_WORKERS = 4
-TOTAL_TARGETS = 32
 worker_id = get_worker_id() % NUM_WORKERS
 each_worker_num_targets = TOTAL_TARGETS // NUM_WORKERS
 targets = [
-    f"ws://localhost:{9214 + i}"
+    f"ws://localhost:{SERVER_START_PORT + i}"
     for i in range(
         worker_id * each_worker_num_targets, (worker_id + 1) * each_worker_num_targets
     )
 ]
 
-proxy = NtoMProxy(targets, 8000)
+proxy = NtoMProxy(targets, PROXY_ENDPOINT)
 app = proxy.app
 app.add_middleware(CORSMiddleware, allow_origins=["*"])

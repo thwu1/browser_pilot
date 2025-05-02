@@ -1,11 +1,13 @@
 import json
 import random
-import re
 import time
 
 import orjson
 
-DEFAULT_SERIALIZER = "orjson"
+from util import config_loader
+
+config = config_loader()
+DEFAULT_SERIALIZER = config["proxy"]["serializer"]
 
 
 class OrjsonSerializer:

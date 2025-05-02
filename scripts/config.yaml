@@ -1,0 +1,19 @@
+monitor:
+  use_monitor: true
+  port: 8100
+  heartbeat_timeout: 60
+  cleanup_interval: 120
+  redis_host: "localhost"
+  redis_port: 6379
+
+proxy:
+  num_workers: 8
+  port: 8000
+  report_status: true
+  report_interval: 15
+  serializer: "orjson"
+
+server:
+  start_port: 9214
+  num_servers: 32
+  type: "playwright"

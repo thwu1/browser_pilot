@@ -7,16 +7,22 @@ import msgpack
 import redis
 import redis.asyncio as redis_async
 
+from util import config_loader
+
+config = config_loader()
+
 # docker run --name my-redis -d -p 6379:6379 redis
 
 # Constants
-HEARTBEAT_TIMEOUT = 60  # seconds
-CLEANUP_INTERVAL = 600  # seconds
+HEARTBEAT_TIMEOUT = config["monitor"]["heartbeat_timeout"]  # seconds
+CLEANUP_INTERVAL = config["monitor"]["cleanup_interval"]  # seconds
+REDIS_HOST = config["monitor"]["redis_host"]
+REDIS_PORT = config["monitor"]["redis_port"]
 
 
 class MonitorClient:
     def __init__(self, identity: str):
-        self.redis_client = redis_async.Redis(host="localhost", port=6379, db=0)
+        self.redis_client = redis_async.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
         self.identity = identity
         self.last_cleanup = time.time()
 
@@ -86,7 +92,7 @@ class MonitorClient:
 
 class CentralMonitorStore:
     def __init__(self):
-        self.redis_client = redis_async.Redis(host="localhost", port=6379, db=0)
+        self.redis_client = redis_async.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
         self.last_cleanup = time.time()
 
     async def _cleanup_old_data(self):
