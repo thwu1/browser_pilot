@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Monitor Dashboard</title>
+    <style>
+        :root {
+            --primary: #0070f3;
+            --secondary: #6c757d;
+            --success: #28a745;
+            --danger: #dc3545;
+            --warning: #ffc107;
+            --info: #17a2b8;
+            --light: #f8f9fa;
+            --dark: #343a40;
+            --gray: #6c757d;
+            --gray-light: #f8f9fa;
+            --gray-dark: #343a40;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: #333;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-active {
+            background-color: var(--success);
+        }
+
+        .status-inactive {
+            background-color: var(--danger);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--gray);
+        }
+
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+
+        .refresh-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+
+        .btn-secondary {
+            background-color: var(--secondary);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+
+        .refresh-interval {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .refresh-interval select {
+            padding: 6px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .last-updated {
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin: 10px 0;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--gray);
+        }
+
+        @media (min-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>WebSocket Monitor Dashboard</h1>
+            <div class="refresh-controls">
+                <div class="refresh-interval">
+                    <label for="refresh-interval">Refresh:</label>
+                    <select id="refresh-interval">
+                        <option value="5000">5 seconds</option>
+                        <option value="10000" selected>10 seconds</option>
+                        <option value="30000">30 seconds</option>
+                        <option value="60000">1 minute</option>
+                    </select>
+                </div>
+                <button id="refresh-btn" class="btn btn-primary">Refresh Now</button>
+            </div>
+        </header>
+
+        <div class="summary-stats" id="summary-stats">
+            <!-- Summary stats will be inserted here -->
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">WebSocket Status</h2>
+                    <span class="last-updated" id="websocket-last-updated">Last updated: Never</span>
+                </div>
+                <div class="card-body">
+                    <table id="websocket-table">
+                        <thead>
+                            <tr>
+                                <th>WebSocket URL</th>
+                                <th>Active Connections</th>
+                                <th>Finished Connections</th>
+                                <th>Error Connections</th>
+                                <th>Last Heartbeat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- WebSocket data will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Task Status</h2>
+                    <span class="last-updated" id="task-last-updated">Last updated: Never</span>
+                </div>
+                <div class="card-body">
+                    <table id="task-table">
+                        <thead>
+                            <tr>
+                                <th>WebSocket URL</th>
+                                <th>Total Completed</th>
+                                <th>Total Pending</th>
+                                <th>Avg Completion Time</th>
+                                <th>Last Heartbeat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Task data will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        let refreshInterval = 10000; // Default refresh interval in milliseconds
+        let refreshTimer;
+
+        // DOM Elements
+        const refreshIntervalSelect = document.getElementById('refresh-interval');
+        const refreshButton = document.getElementById('refresh-btn');
+        const websocketTable = document.getElementById('websocket-table').querySelector('tbody');
+        const taskTable = document.getElementById('task-table').querySelector('tbody');
+        const websocketLastUpdated = document.getElementById('websocket-last-updated');
+        const taskLastUpdated = document.getElementById('task-last-updated');
+        const summaryStats = document.getElementById('summary-stats');
+
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+            startRefreshTimer();
+
+            // Event listeners
+            refreshButton.addEventListener('click', fetchData);
+            refreshIntervalSelect.addEventListener('change', (e) => {
+                refreshInterval = parseInt(e.target.value);
+                startRefreshTimer();
+            });
+        });
+
+        // Start the refresh timer
+        function startRefreshTimer() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+            refreshTimer = setInterval(fetchData, refreshInterval);
+        }
+
+        // Format date for display
+        function formatDate(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleTimeString();
+        }
+
+        // Fetch data from the API
+        async function fetchData() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+
+                updateWebsocketTable(data.websocket_status);
+                updateTaskTable(data.task_tracker_status);
+                updateSummaryStats(data.websocket_status, data.task_tracker_status);
+
+                const now = new Date().toLocaleTimeString();
+                websocketLastUpdated.textContent = `Last updated: ${now}`;
+                taskLastUpdated.textContent = `Last updated: ${now}`;
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        // Update the WebSocket status table
+        function updateWebsocketTable(websocketStatus) {
+            websocketTable.innerHTML = '';
+
+            Object.entries(websocketStatus).forEach(([url, status]) => {
+                const row = document.createElement('tr');
+
+                row.innerHTML = `
+                    <td>${url}</td>
+                    <td>${status.active_connections}</td>
+                    <td>${status.finished_connections}</td>
+                    <td>${status.error_connections}</td>
+                    <td>${formatDate(status.last_heartbeat)}</td>
+                `;
+
+                websocketTable.appendChild(row);
+            });
+        }
+
+        // Update the Task status table
+        function updateTaskTable(taskStatus) {
+            taskTable.innerHTML = '';
+
+            Object.entries(taskStatus).forEach(([url, status]) => {
+                const row = document.createElement('tr');
+
+                row.innerHTML = `
+                    <td>${url}</td>
+                    <td>${status.total_completed}</td>
+                    <td>${status.total_pending}</td>
+                    <td>${status.avg_completion_time}ms</td>
+                    <td>${formatDate(status.last_heartbeat)}</td>
+                `;
+
+                taskTable.appendChild(row);
+            });
+        }
+
+        // Update summary statistics
+        function updateSummaryStats(websocketStatus, taskStatus) {
+            // Calculate summary statistics
+            const totalActiveConnections = Object.values(websocketStatus).reduce((sum, status) => sum + status.active_connections, 0);
+            const totalFinishedConnections = Object.values(websocketStatus).reduce((sum, status) => sum + status.finished_connections, 0);
+            const totalErrorConnections = Object.values(websocketStatus).reduce((sum, status) => sum + status.error_connections, 0);
+
+            // Calculate max active workers instead of sum
+            const maxActiveWorkers = Math.max(...Object.values(websocketStatus).map(status => status.active_workers));
+
+            const totalCompletedTasks = Object.values(taskStatus).reduce((sum, status) => sum + status.total_completed, 0);
+            const totalPendingTasks = Object.values(taskStatus).reduce((sum, status) => sum + status.total_pending, 0);
+
+            // Update the summary stats section
+            summaryStats.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-label">Active Connections</div>
+                    <div class="stat-value">${totalActiveConnections}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Finished Connections</div>
+                    <div class="stat-value">${totalFinishedConnections}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Error Connections</div>
+                    <div class="stat-value">${totalErrorConnections}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Max Active Workers</div>
+                    <div class="stat-value">${maxActiveWorkers}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Completed Tasks</div>
+                    <div class="stat-value">${totalCompletedTasks}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Pending Tasks</div>
+                    <div class="stat-value">${totalPendingTasks.toFixed(1)}</div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+
+</html>

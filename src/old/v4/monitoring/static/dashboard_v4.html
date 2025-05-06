@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Monitor Dashboard</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-light: #6366f1;
+            --primary-dark: #4338ca;
+            --secondary: #64748b;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --light: #f8fafc;
+            --dark: #1e293b;
+            --gray: #64748b;
+            --gray-light: #f1f5f9;
+            --gray-dark: #334155;
+            --border: #e2e8f0;
+            --card-bg: #ffffff;
+            --highlight-bg: rgba(79, 70, 229, 0.1);
+            --highlight-border: rgba(79, 70, 229, 0.5);
+            --increase: #10b981;
+            --decrease: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: var(--dark);
+            background-color: #f8fafc;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        h1,
+        h2,
+        h3 {
+            color: var(--dark);
+            font-weight: 700;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            background: linear-gradient(to right, var(--primary), var(--primary-light));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 24px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--primary-dark);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title::before {
+            content: "";
+            display: block;
+            width: 4px;
+            height: 20px;
+            background: linear-gradient(to bottom, var(--primary), var(--primary-light));
+            border-radius: 2px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-active {
+            background-color: var(--success);
+        }
+
+        .status-inactive {
+            background-color: var(--danger);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        th,
+        td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--gray);
+            background-color: var(--gray-light);
+        }
+
+        th:first-child {
+            border-top-left-radius: 8px;
+        }
+
+        th:last-child {
+            border-top-right-radius: 8px;
+        }
+
+        tr:last-child td:first-child {
+            border-bottom-left-radius: 8px;
+        }
+
+        tr:last-child td:last-child {
+            border-bottom-right-radius: 8px;
+        }
+
+        tr:hover {
+            background-color: var(--gray-light);
+        }
+
+        /* Highlight animation for updated cells */
+        @keyframes highlight {
+            0% {
+                background-color: var(--highlight-bg);
+                border-color: var(--highlight-border);
+            }
+
+            100% {
+                background-color: transparent;
+                border-color: var(--border);
+            }
+        }
+
+        .highlight {
+            animation: highlight 2s ease-out;
+        }
+
+        .increase {
+            color: var(--increase);
+        }
+
+        .decrease {
+            color: var(--decrease);
+        }
+
+        .refresh-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(to right, var(--primary), var(--primary-light));
+            color: white;
+            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(to right, var(--primary-dark), var(--primary));
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(79, 70, 229, 0.2);
+        }
+
+        .refresh-interval {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background-color: var(--gray-light);
+            padding: 6px 12px;
+            border-radius: 8px;
+        }
+
+        .refresh-interval label {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--gray);
+        }
+
+        .refresh-interval select {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background-color: white;
+            font-size: 0.9rem;
+            color: var(--dark);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .refresh-interval select:hover {
+            border-color: var(--primary-light);
+        }
+
+        .refresh-interval select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+        }
+
+        .last-updated {
+            font-size: 0.8rem;
+            color: var(--gray);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .last-updated::before {
+            content: "";
+            display: block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--success);
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: linear-gradient(145deg, #ffffff, #f8fafc);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            padding: 20px;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(to bottom, var(--primary), var(--primary-light));
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary-dark);
+            margin: 10px 0;
+            transition: all 0.3s;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--gray);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-trend {
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            margin-top: 5px;
+        }
+
+        .trend-up {
+            color: var(--increase);
+        }
+
+        .trend-down {
+            color: var(--decrease);
+        }
+
+        .trend-neutral {
+            color: var(--gray);
+        }
+
+        @media (min-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .refresh-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .summary-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .summary-stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>WebSocket Monitor Dashboard</h1>
+            <div class="refresh-controls">
+                <div class="refresh-interval">
+                    <label for="refresh-interval">Refresh:</label>
+                    <select id="refresh-interval">
+                        <option value="5000">5 seconds</option>
+                        <option value="10000" selected>10 seconds</option>
+                        <option value="30000">30 seconds</option>
+                        <option value="60000">1 minute</option>
+                    </select>
+                </div>
+                <button id="refresh-btn" class="btn btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.44-4.5M22 12.5a10 10 0 0 1-18.44 4.5" />
+                    </svg>
+                    Refresh Now
+                </button>
+            </div>
+        </header>
+
+        <div class="summary-stats" id="summary-stats">
+            <!-- Summary stats will be inserted here -->
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">WebSocket Status</h2>
+                    <span class="last-updated" id="websocket-last-updated">Last updated: Never</span>
+                </div>
+                <div class="card-body">
+                    <table id="websocket-table">
+                        <thead>
+                            <tr>
+                                <th>WebSocket URL</th>
+                                <th>Active Connections</th>
+                                <th>Finished Connections</th>
+                                <th>Error Connections</th>
+                                <th>Last Heartbeat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- WebSocket data will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Task Status</h2>
+                    <span class="last-updated" id="task-last-updated">Last updated: Never</span>
+                </div>
+                <div class="card-body">
+                    <table id="task-table">
+                        <thead>
+                            <tr>
+                                <th>WebSocket URL</th>
+                                <th>Total Completed</th>
+                                <th>Total Pending</th>
+                                <th>Avg Completion Time</th>
+                                <th>Last Heartbeat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Task data will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        let refreshInterval = 10000; // Default refresh interval in milliseconds
+        let refreshTimer;
+
+        // Store previous data for comparison
+        let previousWebsocketStatus = {};
+        let previousTaskStatus = {};
+        let previousSummaryStats = {
+            totalActiveConnections: 0,
+            totalFinishedConnections: 0,
+            totalErrorConnections: 0,
+            maxActiveWorkers: 0,
+            totalCompletedTasks: 0,
+            totalPendingTasks: 0
+        };
+
+        // DOM Elements
+        const refreshIntervalSelect = document.getElementById('refresh-interval');
+        const refreshButton = document.getElementById('refresh-btn');
+        const websocketTable = document.getElementById('websocket-table').querySelector('tbody');
+        const taskTable = document.getElementById('task-table').querySelector('tbody');
+        const websocketLastUpdated = document.getElementById('websocket-last-updated');
+        const taskLastUpdated = document.getElementById('task-last-updated');
+        const summaryStats = document.getElementById('summary-stats');
+
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+            startRefreshTimer();
+
+            // Event listeners
+            refreshButton.addEventListener('click', fetchData);
+            refreshIntervalSelect.addEventListener('change', (e) => {
+                refreshInterval = parseInt(e.target.value);
+                startRefreshTimer();
+            });
+        });
+
+        // Start the refresh timer
+        function startRefreshTimer() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+            refreshTimer = setInterval(fetchData, refreshInterval);
+        }
+
+        // Format date for display
+        function formatDate(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleTimeString();
+        }
+
+        // Fetch data from the API
+        async function fetchData() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+
+                updateWebsocketTable(data.websocket_status);
+                updateTaskTable(data.task_tracker_status);
+                updateSummaryStats(data.websocket_status, data.task_tracker_status);
+
+                // Store current data for next comparison
+                previousWebsocketStatus = JSON.parse(JSON.stringify(data.websocket_status));
+                previousTaskStatus = JSON.parse(JSON.stringify(data.task_tracker_status));
+
+                const now = new Date().toLocaleTimeString();
+                websocketLastUpdated.textContent = `Last updated: ${now}`;
+                taskLastUpdated.textContent = `Last updated: ${now}`;
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        // Check if value has changed and return appropriate class
+        function getChangeClass(newValue, oldValue) {
+            if (oldValue === undefined) return '';
+            if (newValue > oldValue) return 'increase';
+            if (newValue < oldValue) return 'decrease';
+            return '';
+        }
+
+        // Update the WebSocket status table
+        function updateWebsocketTable(websocketStatus) {
+            websocketTable.innerHTML = '';
+
+            // Sort entries by URL
+            const sortedEntries = Object.entries(websocketStatus).sort((a, b) => a[0].localeCompare(b[0]));
+
+            sortedEntries.forEach(([url, status]) => {
+                const row = document.createElement('tr');
+                const prevStatus = previousWebsocketStatus[url] || {};
+
+                // Create cells with highlighting for changed values
+                const urlCell = document.createElement('td');
+                urlCell.textContent = url;
+
+                const activeCell = document.createElement('td');
+                activeCell.textContent = status.active_connections;
+                const activeChangeClass = getChangeClass(status.active_connections, prevStatus.active_connections);
+                if (activeChangeClass) {
+                    activeCell.classList.add(activeChangeClass, 'highlight');
+                }
+
+                const finishedCell = document.createElement('td');
+                finishedCell.textContent = status.finished_connections;
+                const finishedChangeClass = getChangeClass(status.finished_connections, prevStatus.finished_connections);
+                if (finishedChangeClass) {
+                    finishedCell.classList.add(finishedChangeClass, 'highlight');
+                }
+
+                const errorCell = document.createElement('td');
+                errorCell.textContent = status.error_connections;
+                const errorChangeClass = getChangeClass(status.error_connections, prevStatus.error_connections);
+                if (errorChangeClass) {
+                    errorCell.classList.add(errorChangeClass, 'highlight');
+                }
+
+                const heartbeatCell = document.createElement('td');
+                heartbeatCell.textContent = formatDate(status.last_heartbeat);
+                if (prevStatus.last_heartbeat && status.last_heartbeat !== prevStatus.last_heartbeat) {
+                    heartbeatCell.classList.add('highlight');
+                }
+
+                // Append cells to row
+                row.appendChild(urlCell);
+                row.appendChild(activeCell);
+                row.appendChild(finishedCell);
+                row.appendChild(errorCell);
+                row.appendChild(heartbeatCell);
+
+                websocketTable.appendChild(row);
+            });
+        }
+
+        // Update the Task status table
+        function updateTaskTable(taskStatus) {
+            taskTable.innerHTML = '';
+
+            // Sort entries by URL
+            const sortedEntries = Object.entries(taskStatus).sort((a, b) => a[0].localeCompare(b[0]));
+
+            sortedEntries.forEach(([url, status]) => {
+                const row = document.createElement('tr');
+                const prevStatus = previousTaskStatus[url] || {};
+
+                // Create cells with highlighting for changed values
+                const urlCell = document.createElement('td');
+                urlCell.textContent = url;
+
+                const completedCell = document.createElement('td');
+                completedCell.textContent = status.total_completed;
+                const completedChangeClass = getChangeClass(status.total_completed, prevStatus.total_completed);
+                if (completedChangeClass) {
+                    completedCell.classList.add(completedChangeClass, 'highlight');
+                }
+
+                const pendingCell = document.createElement('td');
+                pendingCell.textContent = status.total_pending;
+                const pendingChangeClass = getChangeClass(status.total_pending, prevStatus.total_pending);
+                if (pendingChangeClass) {
+                    pendingCell.classList.add(pendingChangeClass, 'highlight');
+                }
+
+                const avgTimeCell = document.createElement('td');
+                // Round the average completion time to an integer
+                avgTimeCell.textContent = `${Math.round(status.avg_completion_time)}ms`;
+                const avgTimeChangeClass = getChangeClass(status.avg_completion_time, prevStatus.avg_completion_time);
+                if (avgTimeChangeClass) {
+                    avgTimeCell.classList.add(avgTimeChangeClass, 'highlight');
+                }
+
+                const heartbeatCell = document.createElement('td');
+                heartbeatCell.textContent = formatDate(status.last_heartbeat);
+                if (prevStatus.last_heartbeat && status.last_heartbeat !== prevStatus.last_heartbeat) {
+                    heartbeatCell.classList.add('highlight');
+                }
+
+                // Append cells to row
+                row.appendChild(urlCell);
+                row.appendChild(completedCell);
+                row.appendChild(pendingCell);
+                row.appendChild(avgTimeCell);
+                row.appendChild(heartbeatCell);
+
+                taskTable.appendChild(row);
+            });
+        }
+
+        // Update summary statistics
+        function updateSummaryStats(websocketStatus, taskStatus) {
+            // Calculate summary statistics
+            const totalActiveConnections = Object.values(websocketStatus).reduce((sum, status) => sum + status.active_connections, 0);
+            const totalFinishedConnections = Object.values(websocketStatus).reduce((sum, status) => sum + status.finished_connections, 0);
+            const totalErrorConnections = Object.values(websocketStatus).reduce((sum, status) => sum + status.error_connections, 0);
+
+            // Calculate max active workers instead of sum
+            const maxActiveWorkers = Math.max(...Object.values(websocketStatus).map(status => status.active_workers));
+
+            const totalCompletedTasks = Object.values(taskStatus).reduce((sum, status) => sum + status.total_completed, 0);
+            const totalPendingTasks = Object.values(taskStatus).reduce((sum, status) => sum + status.total_pending, 0);
+
+            // Create trend indicators
+            const activeTrend = getTrendIndicator(totalActiveConnections, previousSummaryStats.totalActiveConnections);
+            const finishedTrend = getTrendIndicator(totalFinishedConnections, previousSummaryStats.totalFinishedConnections);
+            const errorTrend = getTrendIndicator(totalErrorConnections, previousSummaryStats.totalErrorConnections);
+            const workersTrend = getTrendIndicator(maxActiveWorkers, previousSummaryStats.maxActiveWorkers);
+            const completedTrend = getTrendIndicator(totalCompletedTasks, previousSummaryStats.totalCompletedTasks);
+            const pendingTrend = getTrendIndicator(totalPendingTasks, previousSummaryStats.totalPendingTasks);
+
+            // Update the summary stats section
+            summaryStats.innerHTML = `
+                <div class="stat-card ${getHighlightClass(totalActiveConnections, previousSummaryStats.totalActiveConnections)}">
+                    <div class="stat-label">Active Connections</div>
+                    <div class="stat-value">${totalActiveConnections}</div>
+                    <div class="stat-trend">${activeTrend}</div>
+                </div>
+                <div class="stat-card ${getHighlightClass(totalFinishedConnections, previousSummaryStats.totalFinishedConnections)}">
+                    <div class="stat-label">Finished Connections</div>
+                    <div class="stat-value">${totalFinishedConnections}</div>
+                    <div class="stat-trend">${finishedTrend}</div>
+                </div>
+                <div class="stat-card ${getHighlightClass(totalErrorConnections, previousSummaryStats.totalErrorConnections)}">
+                    <div class="stat-label">Error Connections</div>
+                    <div class="stat-value">${totalErrorConnections}</div>
+                    <div class="stat-trend">${errorTrend}</div>
+                </div>
+                <div class="stat-card ${getHighlightClass(maxActiveWorkers, previousSummaryStats.maxActiveWorkers)}">
+                    <div class="stat-label">Max Active Workers</div>
+                    <div class="stat-value">${maxActiveWorkers}</div>
+                    <div class="stat-trend">${workersTrend}</div>
+                </div>
+                <div class="stat-card ${getHighlightClass(totalCompletedTasks, previousSummaryStats.totalCompletedTasks)}">
+                    <div class="stat-label">Completed Tasks</div>
+                    <div class="stat-value">${totalCompletedTasks}</div>
+                    <div class="stat-trend">${completedTrend}</div>
+                </div>
+                <div class="stat-card ${getHighlightClass(totalPendingTasks, previousSummaryStats.totalPendingTasks)}">
+                    <div class="stat-label">Pending Tasks</div>
+                    <div class="stat-value">${Math.round(totalPendingTasks)}</div>
+                    <div class="stat-trend">${pendingTrend}</div>
+                </div>
+            `;
+
+            // Update previous summary stats for next comparison
+            previousSummaryStats = {
+                totalActiveConnections,
+                totalFinishedConnections,
+                totalErrorConnections,
+                maxActiveWorkers,
+                totalCompletedTasks,
+                totalPendingTasks
+            };
+        }
+
+        // Get trend indicator HTML
+        function getTrendIndicator(newValue, oldValue) {
+            if (oldValue === undefined) return '';
+
+            if (newValue > oldValue) {
+                return `<span class="trend-up">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                    ${Math.round(newValue - oldValue)}
+                </span>`;
+            } else if (newValue < oldValue) {
+                return `<span class="trend-down">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                    ${Math.round(oldValue - newValue)}
+                </span>`;
+            } else {
+                return `<span class="trend-neutral">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    No change
+                </span>`;
+            }
+        }
+
+        // Get highlight class for stat cards
+        function getHighlightClass(newValue, oldValue) {
+            if (oldValue === undefined) return '';
+            return newValue !== oldValue ? 'highlight' : '';
+        }
+    </script>
+</body>
+
+</html>
