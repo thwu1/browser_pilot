@@ -13,9 +13,8 @@ import aiohttp
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from v3.task_tracker import TaskTracker
-
 from monitoring.store import MonitorClient
+from v3.task_tracker import TaskTracker
 
 # Configure logging
 logging.basicConfig(

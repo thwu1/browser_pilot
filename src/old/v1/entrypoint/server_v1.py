@@ -14,6 +14,7 @@ from engine import BrowserEngineConfig
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from scheduler import SchedulerType
+
 from worker import BrowserWorkerTask
 
 # Configure logging

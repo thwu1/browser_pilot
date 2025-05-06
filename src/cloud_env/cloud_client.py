@@ -1,16 +1,18 @@
-from contextlib import asynccontextmanager
-import threading
-from typing import Any
-import uuid
 import asyncio
-from serializer import OrjsonSerializer
+import concurrent.futures
+import queue
+import struct
+import threading
+import time
+import uuid
+from concurrent.futures import Future
+from contextlib import asynccontextmanager
+from typing import Any
+
 import aiohttp
 import uvloop
-import struct
-import queue
-from concurrent.futures import Future
-import time
-import concurrent.futures
+
+from utils import Serializer
 
 
 class MsgType:
@@ -22,7 +24,7 @@ class MsgType:
 
 class CloudClient:
     def __init__(self, url: str = "ws://localhost:9999/send_and_wait"):
-        self._serializer = OrjsonSerializer()
+        self._serializer = Serializer(serializer="orjson")
 
         self._session = None
         self._url = url

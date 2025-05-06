@@ -16,25 +16,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import browsergym
+import gymnasium as gym
 import uvloop
 import zmq
 import zmq.asyncio
-from playwright.async_api import Browser, async_playwright
-from type.task_type import WorkerTask, WorkerOutput
-from type.worker_type import WorkerStatus
-from utils import (
-    JsonDecoder,
-    JsonEncoder,
-    MsgpackDecoder,
-    MsgpackEncoder,
-    MsgType,
-    make_zmq_socket,
-)
-
-import browsergym
-import gymnasium as gym
 from browsergym.async_core.action.highlevel import HighLevelActionSet
-from utils import numpy_safe_serializer
+from playwright.async_api import Browser, async_playwright
+
+from type.task_type import WorkerOutput, WorkerTask
+from type.worker_type import WorkerStatus
+from utils import MsgType, Serializer, make_zmq_socket, numpy_safe_serializer
 
 # Configure logging
 logging.basicConfig(
@@ -345,13 +337,12 @@ class AsyncBrowserWorkerProc:
             )
 
         self.worker = AsyncBrowserWorker(index)
-        self.encoder = MsgpackEncoder()
-        self.decoder = MsgpackDecoder()
+        self.serializer = Serializer(serializer="msgpack")
 
     async def _send_ready(self):
         assert self.worker.is_ready()
         await self.output_socket.send_multipart(
-            [self.identity, MsgType.READY, self.encoder(["READY"])]
+            [self.identity, MsgType.READY, self.serializer.dumps(["READY"])]
         )
 
     @classmethod
@@ -409,13 +400,13 @@ class AsyncBrowserWorkerProc:
     async def _recv(self):
         msg = await self.input_socket.recv_multipart()
         assert len(msg) == 1
-        return self.decoder(msg[0])
+        return self.serializer.loads(msg[0])
 
     async def _send(self, outputs: List[Dict[str, Any]], msg_type: bytes):
         assert isinstance(outputs, list)
         logger.debug(f"Sending {len(outputs)} outputs to client")
         await self.output_socket.send_multipart(
-            [self.identity, msg_type, self.encoder(outputs)]
+            [self.identity, msg_type, self.serializer.dumps(outputs)]
         )
 
     async def process_incoming_socket_loop(self):
@@ -438,7 +429,7 @@ class AsyncBrowserWorkerProc:
 
     async def process_outgoing_socket_loop(self):
         while self.worker.running:
-            output =(await self.worker.output_queue.get()).to_dict()
+            output = (await self.worker.output_queue.get()).to_dict()
             output["profile"]["worker_send_timestamp"] = time.time()
 
             outputs = [output]
@@ -514,7 +505,11 @@ class AsyncBrowserWorkerProc:
                 await self._send([status.to_dict()], MsgType.STATUS)
                 if self.monitor:
                     await self.worker_status_socket.send_multipart(
-                        [self.identity, MsgType.STATUS, self.encoder(status.to_dict())]
+                        [
+                            self.identity,
+                            MsgType.STATUS,
+                            self.serializer.dumps(status.to_dict()),
+                        ]
                     )
                 logger.debug(
                     f"Heartbeat worker {self.worker.index}: "
@@ -540,7 +535,7 @@ class AsyncBrowserWorkerProc:
         await self._send([status.to_dict()], MsgType.STATUS)
         if self.monitor:
             await self.worker_status_socket.send_multipart(
-                [self.identity, MsgType.STATUS, self.encoder(status.to_dict())]
+                [self.identity, MsgType.STATUS, self.serializer.dumps(status.to_dict())]
             )
 
     def shutdown(self):

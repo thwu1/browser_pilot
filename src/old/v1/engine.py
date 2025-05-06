@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from scheduler import make_scheduler
+
 from type.scheduler_type import SchedulerOutput, SchedulerType
 from worker import BrowserWorkerTask
 from worker_client import WorkerClient, make_client

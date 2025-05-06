@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Tuple, Union
 import msgpack
 import redis
 import redis.asyncio as redis_async
-
 from util import config_loader
 
 config = config_loader()

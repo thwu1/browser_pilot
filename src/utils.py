@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Any, Optional, Union
 
 import msgpack
+import numpy as np
+import orjson
 import psutil
 import zmq
 import zmq.asyncio
@@ -65,53 +67,52 @@ def make_zmq_socket(
     return socket
 
 
-class JsonEncoder:
-    def __call__(self, obs):
-        return json.dumps(obs).encode()
+class OrjsonSerializer:
+    # fallback to json if encounter lone surrogates
+    def dumps(self, obj):
+        try:
+            return orjson.dumps(obj).decode("utf-8")
+        except:
+            return json.dumps(obj)
+
+    def loads(self, obj):
+        try:
+            return orjson.loads(obj)
+        except:
+            return json.loads(obj)
 
 
-class JsonDecoder:
-    def __call__(self, obs):
-        return json.loads(obs.decode())
+class JsonSerializer:
+    def dumps(self, obj):
+        return json.dumps(obj).encode()
+
+    def loads(self, obj):
+        return json.loads(obj.decode())
 
 
-class MsgpackEncoder:
-    def __call__(self, obs):
-        return msgpack.dumps(obs, use_bin_type=True)
+class MsgpackSerializer:
+    def dumps(self, obj):
+        return msgpack.packb(obj, use_bin_type=True)
+
+    def loads(self, obj):
+        return msgpack.unpackb(obj, raw=False)
 
 
-class MsgpackDecoder:
-    def __call__(self, obs):
-        return msgpack.loads(obs, raw=False)
+class Serializer:
+    def __init__(self, serializer: str = "orjson"):
+        self.serializer = serializer
+        if serializer == "orjson":
+            self.dumps = OrjsonSerializer().dumps
+            self.loads = OrjsonSerializer().loads
+        elif serializer == "msgpack":
+            self.dumps = MsgpackSerializer().dumps
+            self.loads = MsgpackSerializer().loads
+        else:
+            raise ValueError(f"Invalid serializer: {serializer}")
 
-
-class ZstdMsgpackEncoder:
-    def __init__(self, level: int = 3):
-        self.cctx = zstd.ZstdCompressor(level=level)
-
-    def __call__(self, obs):
-        # 1. Serialize with msgpack
-        packed_data = msgpack.packb(obs, use_bin_type=True)
-        # 2. Compress with Zstandard
-        compressed_data = self.cctx.compress(packed_data)
-        return compressed_data
-
-
-class ZstdMsgpackDecoder:
-    def __init__(self):
-        self.dctx = zstd.ZstdDecompressor()
-
-    def __call__(self, compressed_data):
-        # 1. Decompress with Zstandard
-        packed_data = self.dctx.decompress(compressed_data)
-        # 2. Deserialize with msgpack
-        obj = msgpack.unpackb(packed_data, raw=False)
-        return obj
 
 # Add this helper function to convert numpy arrays in complex nested structures
 def numpy_safe_serializer(obj):
-    import numpy as np
-    
     if isinstance(obj, dict):
         return {k: numpy_safe_serializer(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -129,6 +130,7 @@ def numpy_safe_serializer(obj):
     else:
         return obj
 
+
 if __name__ == "__main__":
     d = {
         "task_id": "task_6d3d0e99",
@@ -143,16 +145,10 @@ if __name__ == "__main__":
         "worker_finish_process_timestamp": None,
         "worker_send_timestamp": None,
     }
-    encoded = MsgpackEncoder()(d)
+    serializer = MsgpackSerializer()
+    encoded = serializer.dumps(d)
     # print(len(encoded))
     assert type(encoded) == bytes
 
-    decoded = MsgpackDecoder()(encoded)
+    decoded = serializer.loads(encoded)
     assert decoded == d
-
-    zstd_encoded = ZstdMsgpackEncoder()(d)
-    # print(len(zstd_encoded))
-    assert type(zstd_encoded) == bytes
-
-    zstd_decoded = ZstdMsgpackDecoder()(zstd_encoded)
-    assert zstd_decoded == d

@@ -2,8 +2,8 @@ import json
 import random
 import time
 
-import orjson
 import msgpack
+import orjson
 
 DEFAULT_SERIALIZER = "orjson"
 

@@ -1,7 +1,8 @@
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any
+
 from cloud_client import CloudClient, MsgType
-import uuid
 
 
 class CloudEnv(ABC):
@@ -62,6 +63,14 @@ class CloudEnv(ABC):
             future = self._client.send(msg)
             result = future.result(timeout=timeout)
             self._initialized = True
+
+            msg = {
+                "task_id": str(uuid.uuid4()),
+                "method": "reset",
+                "params": {},
+            }
+            future = self._client.send(msg)
+            result = future.result(timeout=timeout)
             return result
 
     def close(self, timeout: float = 30.0):
@@ -83,8 +92,6 @@ if __name__ == "__main__":
         slow_mo=0,
         timeout=10,
     )
-    result = env.reset()
-    # print(result)
     result = env.reset()
     # print(result)
 

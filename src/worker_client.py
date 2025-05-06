@@ -20,16 +20,7 @@ import zmq
 import zmq.asyncio
 
 # from timer_util import Timer
-from utils import (
-    JsonDecoder,
-    JsonEncoder,
-    MsgpackDecoder,
-    MsgpackEncoder,
-    MsgType,
-    ZstdMsgpackDecoder,
-    ZstdMsgpackEncoder,
-    make_zmq_socket,
-)
+from utils import MsgType, Serializer, make_zmq_socket
 from worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(
@@ -105,8 +96,7 @@ class SyncWorkerClient(WorkerClient):
         self.output_socket = make_zmq_socket(
             self.zmq_context, self.output_path, zmq.PULL, bind=True
         )
-        self.encoder = MsgpackEncoder()
-        self.decoder = MsgpackDecoder()
+        self.serializer = Serializer(serializer="msgpack")
 
         self.worker_status = {worker_id: {} for worker_id in range(num_workers)}
 
@@ -164,7 +154,7 @@ class SyncWorkerClient(WorkerClient):
     def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
         assert isinstance(msg, list)
         self.input_socket.send_multipart(
-            [str(index).encode(), self.encoder(msg)], flags=zmq.NOBLOCK
+            [str(index).encode(), self.serializer.dumps(msg)], flags=zmq.NOBLOCK
         )
 
     def _recv(self):
@@ -172,7 +162,7 @@ class SyncWorkerClient(WorkerClient):
         assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
         index = int(msg[0])
         msg_type = msg[1]
-        return index, msg_type, self.decoder(msg[2])
+        return index, msg_type, self.serializer.loads(msg[2])
 
     def _recv_thread(self):
         while self._recv_thread_running:
@@ -270,8 +260,7 @@ class AsyncWorkerClient(WorkerClient):
         self.output_socket = make_zmq_socket(
             self.zmq_context, self.output_path, zmq.PULL, bind=True
         )
-        self.encoder = MsgpackEncoder()
-        self.decoder = MsgpackDecoder()
+        self.serializer = Serializer(serializer="msgpack")
 
         self.worker_status = {worker_id: {} for worker_id in range(num_workers)}
 
@@ -328,14 +317,16 @@ class AsyncWorkerClient(WorkerClient):
 
     async def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
         assert isinstance(msg, list)
-        await self.input_socket.send_multipart([str(index).encode(), self.encoder(msg)])
+        await self.input_socket.send_multipart(
+            [str(index).encode(), self.serializer.dumps(msg)]
+        )
 
     async def _recv(self):
         msg = await self.output_socket.recv_multipart()
         assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
         index = int(msg[0])
         msg_type = msg[1]
-        return index, msg_type, self.decoder(msg[2])
+        return index, msg_type, self.serializer.loads(msg[2])
 
     async def run_recv_loop(self):
         self._recv_loop_running = True

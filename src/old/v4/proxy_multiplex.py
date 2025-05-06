@@ -15,7 +15,6 @@ import uvloop
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketState
-
 from monitoring.store import MonitorClient
 from serializer import Serializer
 from status_tracker import StatusTracker

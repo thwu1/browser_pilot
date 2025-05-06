@@ -13,11 +13,10 @@ import uvloop
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.websockets import WebSocketState
-from v3.task_tracker import TaskTracker
-
 from monitoring.store import MonitorClient
 from serializer import Serializer
 from util import get_worker_id
+from v3.task_tracker import TaskTracker
 
 logging.basicConfig(
     level=logging.INFO,

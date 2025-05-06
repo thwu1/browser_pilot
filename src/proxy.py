@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import logging
 import time
 import uuid
@@ -13,21 +14,10 @@ import zmq
 import zmq.asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from serializer import OrjsonSerializer, MsgpackSerializer
-from utils import (
-    MsgpackDecoder,
-    MsgpackEncoder,
-    MsgType,
-    ZstdMsgpackDecoder,
-    ZstdMsgpackEncoder,
-    make_zmq_socket,
-)
-from type.task_type import WorkerTask
-import logging
 
-from worker_client import WorkerClient
 from type.task_type import WorkerOutput, WorkerTask
-import concurrent.futures
+from utils import MsgType, Serializer, make_zmq_socket
+from worker_client import WorkerClient
 
 # Configure logging
 logging.basicConfig(
@@ -41,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 client = None
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-serializer = OrjsonSerializer()
+serializer = Serializer(serializer="orjson")
 
 task_id_to_future = {}
 

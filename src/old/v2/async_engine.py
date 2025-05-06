@@ -11,6 +11,7 @@ import zmq.asyncio
 from engine import BrowserEngineConfig, BrowserWorkerTask
 from scheduler import SchedulerOutput, make_scheduler
 from timer_util import Timer
+
 from utils import MsgpackDecoder, MsgpackEncoder, MsgType, make_zmq_socket
 from worker_client import WorkerClient
 

@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
+
 from utils import MsgpackDecoder, MsgType, make_zmq_socket
 
 # Setup logging
