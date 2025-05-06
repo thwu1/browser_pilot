@@ -16,7 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from type.task_type import WorkerOutput, WorkerTask
-from utils import MsgType, Serializer, make_zmq_socket
+from utils import Serializer
 from worker_client import WorkerClient
 
 # Configure logging

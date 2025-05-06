@@ -22,6 +22,7 @@ import uvloop
 import zmq
 import zmq.asyncio
 from browsergym.async_core.action.highlevel import HighLevelActionSet
+from browsergym.async_core.action.python import PythonActionSet
 from playwright.async_api import Browser, async_playwright
 
 from type.task_type import WorkerOutput, WorkerTask
@@ -260,8 +261,16 @@ class AsyncBrowserWorker:
             assert (
                 env_id not in self.env_map
             ), "Environment already exists, should not initialize again"
-            action_set = HighLevelActionSet()
-            params["action_mapping"] = action_set.to_python_code
+            if "action_mapping" in params:
+                action_set_type = params["action_mapping"].pop("type")
+                if action_set_type == "HighLevelActionSet":
+                    action_set = HighLevelActionSet(**params["action_mapping"])
+                    params["action_mapping"] = action_set.to_python_code
+                elif action_set_type == "PythonActionSet":
+                    action_set = PythonActionSet(**params["action_mapping"])
+                    params["action_mapping"] = action_set.to_python_code
+                else:
+                    raise ValueError(f"Unknown action mapping type: {action_set_type}")
             env = gym.make(**params)
             env = env.unwrapped
             self.env_map[env_id] = env

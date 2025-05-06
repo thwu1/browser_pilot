@@ -2,7 +2,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
-from cloud_client import CloudClient, MsgType
+from cloud.client import CloudClient
 
 
 class CloudEnv(ABC):
@@ -42,7 +42,8 @@ class CloudEnv(ABC):
             "params": {"action": action},
         }
         future = self._client.send(msg)
-        return future.result(timeout=timeout)
+        result = future.result(timeout=timeout)
+        return tuple(result["result"])
 
     def reset(self, timeout: float = 30.0) -> None:
         if self._initialized:
@@ -53,7 +54,7 @@ class CloudEnv(ABC):
             }
             future = self._client.send(msg)
             result = future.result(timeout=timeout)
-            return result
+            return tuple(result["result"])
         else:
             msg = {
                 "task_id": str(uuid.uuid4()),
@@ -71,7 +72,7 @@ class CloudEnv(ABC):
             }
             future = self._client.send(msg)
             result = future.result(timeout=timeout)
-            return result
+            return tuple(result["result"])
 
     def close(self, timeout: float = 30.0):
         msg = {
@@ -93,9 +94,18 @@ if __name__ == "__main__":
         timeout=10,
     )
     result = env.reset()
+    assert isinstance(
+        result, tuple
+    ), f"result is not a tuple: {type(result)}, {result.keys()}"
+    assert len(result) == 2
     # print(result)
 
     result = env.step("Click on the button")
+    assert isinstance(result, tuple)
+    assert len(result) == 5
     # print(result)
-    env.step("Click on the button")
+    result = env.step("Click on the button")
+    assert isinstance(result, tuple)
+    assert len(result) == 5
+    # print(result)
     env.close()

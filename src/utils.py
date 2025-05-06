@@ -120,7 +120,7 @@ def numpy_safe_serializer(obj):
     elif isinstance(obj, tuple):
         return tuple(numpy_safe_serializer(item) for item in obj)
     elif isinstance(obj, np.ndarray):
-        return obj.tolist()  # Convert numpy arrays to lists
+        return obj.tolist()
     elif isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, np.floating):
