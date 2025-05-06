@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-class BrowserWorkerTask(BaseModel):
+class WorkerTask(BaseModel):
     """
     Task for browser worker execution
     task_id and command are required fields
@@ -12,9 +12,8 @@ class BrowserWorkerTask(BaseModel):
     """
 
     task_id: str
-    context_id: Optional[str] = Field(default=None)
-    page_id: Optional[str] = Field(default=None)
-    command: str
+    env_id: Optional[str] = Field(default=None)
+    method: str
     params: Optional[Dict[str, Any]] = Field(default=None)
 
     engine_recv_timestamp: Optional[float] = Field(default=None)
@@ -28,10 +27,20 @@ class BrowserWorkerTask(BaseModel):
         return self.__dict__
 
 
+class WorkerOutput(BaseModel):
+    task_id: str
+    result: Any
+    success: bool
+    profile: Optional[Dict[str, Any]] = Field(default=None)
+
+    def to_dict(self):
+        return self.__dict__
+
+
 if __name__ == "__main__":
-    task = BrowserWorkerTask(
+    task = WorkerTask(
         task_id="task_1",
-        command="create_context",
+        method="create_context",
         params={"url": "https://www.example.com"},
     )
     print(task)

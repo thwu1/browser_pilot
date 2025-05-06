@@ -18,7 +18,8 @@ from typing import Any, Dict, List, Optional
 
 import zmq
 import zmq.asyncio
-from timer_util import Timer
+
+# from timer_util import Timer
 from utils import (
     JsonDecoder,
     JsonEncoder,
@@ -29,7 +30,7 @@ from utils import (
     ZstdMsgpackEncoder,
     make_zmq_socket,
 )
-from worker.worker import AsyncBrowserWorkerProc
+from worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(
     level=logging.ERROR,
@@ -119,7 +120,6 @@ class SyncWorkerClient(WorkerClient):
     def _start_workers(self):
         self.worker_processes = []
         for worker_id in range(self.num_workers):
-            # Create process for each worker
             process = mp.Process(
                 target=AsyncBrowserWorkerProc.run_background_loop,
                 args=(
@@ -201,10 +201,9 @@ class SyncWorkerClient(WorkerClient):
                     self._send(
                         [
                             {
-                                "command": "shutdown",
-                                "task_id": f"shutdown_{worker_idx}",
-                                "context_id": None,
-                                "page_id": None,
+                                "task_id": f"SHUTDOWN_{worker_idx}",
+                                "env_id": "SHUTDOWN",
+                                "method": "SHUTDOWN",
                             }
                         ],
                         worker_idx,
@@ -366,10 +365,9 @@ class AsyncWorkerClient(WorkerClient):
                     self._send(
                         [
                             {
-                                "command": "shutdown",
-                                "task_id": f"shutdown_{worker_idx}",
-                                "context_id": None,
-                                "page_id": None,
+                                "task_id": f"SHUTDOWN_{worker_idx}",
+                                "env_id": "SHUTDOWN",
+                                "method": "SHUTDOWN",
                             }
                         ],
                         worker_idx,

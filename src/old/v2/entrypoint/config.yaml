@@ -5,12 +5,12 @@ worker_client_config:
   type: "sync"
   input_path: "ipc://input_fastapi.sock"
   output_path: "ipc://output_fastapi.sock"
-  num_workers: 32
+  num_workers: 1
   report_cpu_and_memory: false
   monitor: true
   monitor_path: "ipc://worker_status.sock"
 
 scheduler_config:
   type: "round_robin"
-  max_batch_size: 32
-  num_workers: 32
+  max_batch_size: 1
+  num_workers: 1
