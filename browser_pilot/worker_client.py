@@ -20,8 +20,8 @@ import zmq
 import zmq.asyncio
 
 # from timer_util import Timer
-from utils import MsgType, Serializer, make_zmq_socket
-from worker import AsyncBrowserWorkerProc
+from browser_pilot.utils import MsgType, Serializer, make_zmq_socket
+from browser_pilot.worker import AsyncBrowserWorkerProc
 
 logging.basicConfig(
     level=logging.ERROR,

@@ -2,7 +2,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
-from cloud.client import CloudClient
+from browser_pilot.cloud.client import CloudClient
 
 
 class CloudEnv(ABC):

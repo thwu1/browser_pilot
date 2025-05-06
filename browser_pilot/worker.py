@@ -17,6 +17,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import browsergym
+import browsergym.async_webarena
 import gymnasium as gym
 import uvloop
 import zmq
@@ -25,9 +26,14 @@ from browsergym.async_core.action.highlevel import HighLevelActionSet
 from browsergym.async_core.action.python import PythonActionSet
 from playwright.async_api import Browser, async_playwright
 
-from type.task_type import WorkerOutput, WorkerTask
-from type.worker_type import WorkerStatus
-from utils import MsgType, Serializer, make_zmq_socket, numpy_safe_serializer
+from browser_pilot.type.task_type import WorkerOutput, WorkerTask
+from browser_pilot.type.worker_type import WorkerStatus
+from browser_pilot.utils import (
+    MsgType,
+    Serializer,
+    make_zmq_socket,
+    numpy_safe_serializer,
+)
 
 # Configure logging
 logging.basicConfig(

@@ -12,7 +12,7 @@ from typing import Any
 import aiohttp
 import uvloop
 
-from utils import Serializer
+from browser_pilot.utils import Serializer
 
 
 class MsgType:

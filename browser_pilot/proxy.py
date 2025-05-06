@@ -10,14 +10,13 @@ from typing import Any, Dict, Optional
 import uvicorn
 import uvloop
 import yaml
-import zmq
 import zmq.asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from type.task_type import WorkerOutput, WorkerTask
-from utils import Serializer
-from worker_client import WorkerClient
+from browser_pilot.type.task_type import WorkerOutput, WorkerTask
+from browser_pilot.utils import Serializer
+from browser_pilot.worker_client import WorkerClient
 
 # Configure logging
 logging.basicConfig(
@@ -36,7 +35,7 @@ serializer = Serializer(serializer="orjson")
 task_id_to_future = {}
 
 config = yaml.safe_load(
-    open("/home/tianhao/browser_pilot/src/old/v2/entrypoint/config.yaml")
+    open("/home/tianhao/browser_pilot/browser_pilot/old/v2/entrypoint/config.yaml")
 )
 status_socket = None
 num_workers = config["worker_client_config"]["num_workers"]
