@@ -37,7 +37,7 @@ from browser_pilot.utils import (
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(), logging.FileHandler("worker.log")],
 )
@@ -150,11 +150,11 @@ class AsyncBrowserWorker:
 
     async def _execute_task(self, task: WorkerTask):
         """Execute a single task and put result in result queue"""
-        logger.info(f"Executing task {task.to_dict()}")
+        logger.debug(f"Executing task {task.to_dict()}")
         task.worker_start_process_timestamp = time.time()
         try:
             result = await self._execute_method(task.env_id, task.method, task.params)
-            logger.info(f"Task {task.task_id} finished with result: {result}")
+            logger.debug(f"Task {task.task_id} finished with result: {result}")
 
             result = numpy_safe_serializer(result)
 
@@ -279,6 +279,7 @@ class AsyncBrowserWorker:
                     raise ValueError(f"Unknown action mapping type: {action_set_type}")
             env = gym.make(**params)
             env = env.unwrapped
+            env.set_browser(self.browser)
             self.env_map[env_id] = env
             return "Initialized"
 

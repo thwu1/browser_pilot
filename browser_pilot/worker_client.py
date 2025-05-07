@@ -391,7 +391,7 @@ class AsyncWorkerClient(WorkerClient):
             self.zmq_context.term()
 
             # Wait for receive thread
-            logger.info("Waiting for receive thread")
+            # logger.info("Waiting for receive thread")
             logger.info("Worker client closed successfully")
         except Exception as e:
             logger.error(f"Error during worker client shutdown: {e}")

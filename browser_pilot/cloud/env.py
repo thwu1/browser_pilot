@@ -6,34 +6,10 @@ from browser_pilot.cloud.client import CloudClient
 
 
 class CloudEnv(ABC):
-    def __init__(self, **kwargs):
-        self._client = CloudClient()
+    def __init__(self, url: str = "ws://localhost:9999/send_and_wait", **kwargs):
+        self._client = CloudClient(url)
         self._initialized = False
         self._kwargs = kwargs
-
-    # @abstractmethod
-    # def __reset__(self) -> None:
-    #     raise NotImplementedError("__reset__ is not implemented")
-
-    # # @abstractmethod
-    # def __step__(self, action: Any) -> Any:
-    #     raise NotImplementedError("__step__ is not implemented")
-
-    # # @abstractmethod
-    # def __close__(self) -> None:
-    #     raise NotImplementedError("__close__ is not implemented")
-
-    # async def __areset__(self) -> None:
-    #     raise NotImplementedError("__areset__ is not implemented")
-
-    # async def __astep__(self, action: Any) -> Any:
-    #     raise NotImplementedError("__astep__ is not implemented")
-
-    # async def __aclose__(self) -> None:
-    #     raise NotImplementedError("__aclose__ is not implemented")
-
-    # async def __ainit__(self) -> None:
-    #     raise NotImplementedError("__ainit__ is not implemented")
 
     def step(self, action: Any, timeout: float = 30.0) -> Any:
         msg = {

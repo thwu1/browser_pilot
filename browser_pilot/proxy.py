@@ -18,7 +18,6 @@ from browser_pilot.type.task_type import WorkerOutput, WorkerTask
 from browser_pilot.utils import Serializer
 from browser_pilot.worker_client import WorkerClient
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -167,7 +166,7 @@ if __name__ == "__main__":
         "proxy:app",
         host="0.0.0.0",
         port=9999,
-        log_level="debug",
+        log_level="info",
         workers=1,
         lifespan="on",
         ws_max_size=1024 * 1024 * 100,
