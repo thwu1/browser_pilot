@@ -103,9 +103,73 @@ class SyncWorkerClient(WorkerClient):
         self._start_workers()
         self._wait_for_workers_ready()
 
-        self.recv_thread = threading.Thread(target=self._recv_thread)
+        self._recv_thread = threading.Thread(target=self._recv_thread_loop)
         self._recv_thread_running = True
-        self.recv_thread.start()
+        self._recv_thread.start()
+
+    def send(self, msg: List[Dict[str, Any]], index: int):
+        self._send(msg, index)
+
+    def get_output_nowait(self):
+        if self.output_queue.qsize() > 0:
+            return self.output_queue.get_nowait()
+        return None
+
+    def get_output_queue_len(self):
+        return self.output_queue.qsize()
+
+    def get_worker_status_no_wait(self):
+        return self.worker_status.copy()
+
+    def close(self):
+        logger.info("Received close signal, closing worker client")
+        try:
+            # Send shutdown signal to all workers
+            logger.info("Sending shutdown signal to all workers")
+            for worker_idx in range(self.num_workers):
+                try:
+                    self._send(
+                        [
+                            {
+                                "task_id": f"SHUTDOWN_{worker_idx}",
+                                "env_id": "SHUTDOWN",
+                                "method": "SHUTDOWN",
+                            }
+                        ],
+                        worker_idx,
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending shutdown to worker {worker_idx}: {e}")
+
+            # Give workers a moment to process shutdown
+            time.sleep(0.5)
+            self._recv_thread_running = False
+
+            # Terminate and wait for worker processes
+            logger.info("Terminating worker processes")
+            for worker_process in self.worker_processes:
+                worker_process.terminate()
+                worker_process.join(timeout=1.0)  # Wait up to 1 second for each process
+                if worker_process.is_alive():
+                    logger.warning(
+                        f"Worker process {worker_process.pid} still alive, killing..."
+                    )
+                    worker_process.kill()  # Force kill if still alive
+                    worker_process.join(timeout=0.5)
+
+            # Close sockets and terminate context
+            logger.info("Closing ZMQ sockets")
+            self.input_socket.close()
+            self.output_socket.close()
+            self.zmq_context.term()
+
+            # Wait for receive thread
+            logger.info("Waiting for receive thread")
+            self._recv_thread.join(timeout=1.0)
+
+            logger.info("Worker client closed successfully")
+        except Exception as e:
+            logger.error(f"Error during worker client shutdown: {e}")
 
     def _start_workers(self):
         self.worker_processes = []
@@ -140,17 +204,6 @@ class SyncWorkerClient(WorkerClient):
         else:
             logger.info(f"All workers {self.num_workers} are ready")
 
-    def send(self, msg: List[Dict[str, Any]], index: int):
-        self._send(msg, index)
-
-    def get_output_nowait(self):
-        if self.output_queue.qsize() > 0:
-            return self.output_queue.get_nowait()
-        return None
-
-    def get_output_queue_len(self):
-        return self.output_queue.qsize()
-
     def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
         assert isinstance(msg, list)
         self.input_socket.send_multipart(
@@ -164,7 +217,7 @@ class SyncWorkerClient(WorkerClient):
         msg_type = msg[1]
         return index, msg_type, self.serializer.loads(msg[2])
 
-    def _recv_thread(self):
+    def _recv_thread_loop(self):
         while self._recv_thread_running:
             idx, msg_type, msg = self._recv()
             if msg_type == MsgType.OUTPUT and msg:
@@ -177,62 +230,6 @@ class SyncWorkerClient(WorkerClient):
                 assert isinstance(msg[0], dict)
                 logger.debug(f"Received status from worker {idx}: {msg[0]}")
                 self.worker_status[idx] = msg[0]
-
-    def get_worker_status_no_wait(self):
-        return self.worker_status.copy()
-
-    def close(self):
-        logger.info("Received close signal, closing worker client")
-        try:
-            # Send shutdown signal to all workers
-            logger.info("Sending shutdown signal to all workers")
-            for worker_idx in range(self.num_workers):
-                try:
-                    self._send(
-                        [
-                            {
-                                "task_id": f"SHUTDOWN_{worker_idx}",
-                                "env_id": "SHUTDOWN",
-                                "method": "SHUTDOWN",
-                            }
-                        ],
-                        worker_idx,
-                    )
-                except Exception as e:
-                    logger.error(f"Error sending shutdown to worker {worker_idx}: {e}")
-
-            # Give workers a moment to process shutdown
-            time.sleep(0.5)
-
-            # Stop the receive thread
-            self._recv_thread_running = False
-
-            # Terminate and wait for worker processes
-            logger.info("Terminating worker processes")
-            for worker_process in self.worker_processes:
-                worker_process.terminate()
-                worker_process.join(timeout=1.0)  # Wait up to 1 second for each process
-                if worker_process.is_alive():
-                    logger.warning(
-                        f"Worker process {worker_process.pid} still alive, killing..."
-                    )
-                    worker_process.kill()  # Force kill if still alive
-                    worker_process.join(timeout=0.5)
-
-            # Close sockets and terminate context
-            logger.info("Closing ZMQ sockets")
-            self.input_socket.close()
-            self.output_socket.close()
-            self.zmq_context.term()
-
-            # Wait for receive thread
-            logger.info("Waiting for receive thread")
-            self.recv_thread.join(timeout=1.0)
-
-            logger.info("Worker client closed successfully")
-        except Exception as e:
-            logger.error(f"Error during worker client shutdown: {e}")
-
 
 class AsyncWorkerClient(WorkerClient):
     def __init__(
@@ -268,24 +265,6 @@ class AsyncWorkerClient(WorkerClient):
 
         self._recv_loop_running = False
 
-    def _start_workers(self):
-        self.worker_processes = []
-        for worker_id in range(self.num_workers):
-            # Create process for each worker
-            process = mp.Process(
-                target=AsyncBrowserWorkerProc.run_background_loop,
-                args=(
-                    worker_id,
-                    self.input_path,
-                    self.output_path,
-                    self.report_cpu_and_memory,
-                    self.monitor,
-                    self.monitor_path,
-                ),
-                daemon=True,
-            )
-            process.start()
-            self.worker_processes.append(process)
 
     async def wait_for_workers_ready(self, timeout: float = 10):
         waiting_workers = set(range(self.num_workers))
@@ -314,19 +293,6 @@ class AsyncWorkerClient(WorkerClient):
 
     def get_output_queue_len(self):
         return self.output_queue.qsize()
-
-    async def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
-        assert isinstance(msg, list)
-        await self.input_socket.send_multipart(
-            [str(index).encode(), self.serializer.dumps(msg)]
-        )
-
-    async def _recv(self):
-        msg = await self.output_socket.recv_multipart()
-        assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
-        index = int(msg[0])
-        msg_type = msg[1]
-        return index, msg_type, self.serializer.loads(msg[2])
 
     async def run_recv_loop(self):
         self._recv_loop_running = True
@@ -395,3 +361,35 @@ class AsyncWorkerClient(WorkerClient):
             logger.info("Worker client closed successfully")
         except Exception as e:
             logger.error(f"Error during worker client shutdown: {e}")
+    
+    def _start_workers(self):
+        self.worker_processes = []
+        for worker_id in range(self.num_workers):
+            # Create process for each worker
+            process = mp.Process(
+                target=AsyncBrowserWorkerProc.run_background_loop,
+                args=(
+                    worker_id,
+                    self.input_path,
+                    self.output_path,
+                    self.report_cpu_and_memory,
+                    self.monitor,
+                    self.monitor_path,
+                ),
+                daemon=True,
+            )
+            process.start()
+            self.worker_processes.append(process)
+
+    async def _send(self, msg: List[Dict[str, Any]], index: int) -> str:
+        assert isinstance(msg, list)
+        await self.input_socket.send_multipart(
+            [str(index).encode(), self.serializer.dumps(msg)]
+        )
+
+    async def _recv(self):
+        msg = await self.output_socket.recv_multipart()
+        assert len(msg) == 3, f"Expected 3 parts, got {len(msg)}, {msg}"
+        index = int(msg[0])
+        msg_type = msg[1]
+        return index, msg_type, self.serializer.loads(msg[2])

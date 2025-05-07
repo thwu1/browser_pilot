@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from browser_pilot.type.task_type import WorkerOutput, WorkerTask
-from browser_pilot.utils import Serializer
+from browser_pilot.utils import Serializer, get_worker_id
 from browser_pilot.worker_client import WorkerClient
 
 logging.basicConfig(
@@ -26,18 +26,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
+NUM_FASTAPI_WORKERS = 8
+TOTAL_WORKERS = 32
+worker_id = get_worker_id() % NUM_FASTAPI_WORKERS
 client = None
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 serializer = Serializer(serializer="orjson")
 
 task_id_to_future = {}
 
-config = yaml.safe_load(
-    open("/home/tianhao/browser_pilot/browser_pilot/old/v2/entrypoint/config.yaml")
-)
+# config = yaml.safe_load(
+#     open("/home/tianhao/browser_pilot/browser_pilot/old/v2/entrypoint/config.yaml")
+# )
 status_socket = None
-num_workers = config["worker_client_config"]["num_workers"]
+# assert config["worker_client_config"]["num_workers"] % NUM_FASTAPI_WORKERS == 0
+num_workers = TOTAL_WORKERS // NUM_FASTAPI_WORKERS
+
+config = {
+    "type": "sync",
+    "input_path": f"ipc://input_fastapi_{worker_id}.sock",
+    "output_path": f"ipc://output_fastapi_{worker_id}.sock",
+    "num_workers": num_workers,
+    "report_cpu_and_memory": False,
+    "monitor": True,
+    "monitor_path": "ipc://worker_status.sock",
+}
 
 
 class RoundRobinWorkerIterator:
@@ -60,7 +73,7 @@ worker_iter = iter(RoundRobinWorkerIterator(num_workers))
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global client
-    client = WorkerClient.make_client(config["worker_client_config"])
+    client = WorkerClient.make_client(config)
     recv_task = asyncio.create_task(recv_output_loop(), name="recv_output_loop")
     try:
         yield
@@ -148,7 +161,7 @@ async def send_and_wait(websocket: WebSocket):
             )
             task_id_to_future[msg_id] = asyncio.Future()
             client.send([task.to_dict()], assigned_worker)
-            result = await asyncio.wait_for(task_id_to_future[msg_id], timeout=30)
+            result = await asyncio.wait_for(task_id_to_future[msg_id], timeout=120)
             result["profile"]["app_init_timestamp"] = initial_time
             result["profile"]["app_recv_timestamp"] = time.time()
             task_id_to_future.pop(msg_id)
@@ -160,7 +173,7 @@ async def send_and_wait(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    # uvicorn src.entrypoint.server_client:app --host 0.0.0.0 --port 9999 --workers 4 --loop uvloop
+    # uvicorn proxy:app --host 0.0.0.0 --port 9999 --workers 8 --loop uvloop --ws-max-size 10000000
 
     uvicorn.run(
         "proxy:app",

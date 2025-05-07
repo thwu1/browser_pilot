@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
-
+import json
 import browsergym
 import browsergym.async_webarena
 import gymnasium as gym
@@ -156,6 +156,19 @@ class AsyncBrowserWorker:
             result = await self._execute_method(task.env_id, task.method, task.params)
             logger.debug(f"Task {task.task_id} finished with result: {result}")
 
+            if isinstance(result, tuple):
+                logger.debug(f"Result is a tuple: {len(result)}")
+                if isinstance(result[0], dict):
+                    logger.debug(f"Result[0] is a dict: {result[0].keys()}")
+                    for key in list(result[0].keys()):
+                        if key in [
+                            "screenshot",
+                            "extra_element_properties",
+                            "dom_object",
+                        ]:
+                            logger.debug(f"Removing key: {key}")
+                            result[0].pop(key)
+
             result = numpy_safe_serializer(result)
 
             finish_timestamp = time.time()
@@ -186,7 +199,7 @@ class AsyncBrowserWorker:
             self.output_queue.put_nowait(
                 WorkerOutput(
                     task_id=task.task_id,
-                    result=str(e) + "\n" + traceback.format_exc(),
+                    result=(str(e) + "\n" + traceback.format_exc(),),
                     success=False,
                     profile={
                         "engine_recv_timestamp": task.engine_recv_timestamp,

@@ -9,6 +9,8 @@ import psutil
 import zmq
 import zmq.asyncio
 import zstandard as zstd
+import fcntl
+import os
 
 
 class MsgType(bytes, Enum):
@@ -113,7 +115,9 @@ class Serializer:
 
 # Add this helper function to convert numpy arrays in complex nested structures
 def numpy_safe_serializer(obj):
-    if isinstance(obj, dict):
+    if isinstance(obj, str):
+        return obj
+    elif isinstance(obj, dict):
         return {k: numpy_safe_serializer(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [numpy_safe_serializer(item) for item in obj]
@@ -129,6 +133,30 @@ def numpy_safe_serializer(obj):
         return bool(obj)
     else:
         return obj
+
+
+def get_worker_id():
+    lockfile = "worker_id.lock"
+    if not os.path.exists(lockfile):
+        # Create the file and initialize with 0
+        with open(lockfile, "w") as f:
+            f.write("0")
+
+    with open(lockfile, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        content = f.read().strip()
+        if content == "":
+            worker_id = 0
+        else:
+            worker_id = int(content)
+        # Write back the incremented worker id
+        f.seek(0)
+        f.truncate()
+        f.write(str(worker_id + 1))
+        f.flush()
+        # Lock is released when file is closed
+    return worker_id
 
 
 if __name__ == "__main__":

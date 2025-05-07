@@ -71,8 +71,7 @@ class CloudClient:
 
     def _run_async_loop(self):
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        loop = asyncio.new_event_loop()
-        self._loop = loop
+        self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
 
         connect_future = asyncio.ensure_future(self._connect())
