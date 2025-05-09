@@ -1,4 +1,6 @@
+import fcntl
 import json
+import os
 from enum import Enum
 from typing import Any, Optional, Union
 
@@ -9,8 +11,6 @@ import psutil
 import zmq
 import zmq.asyncio
 import zstandard as zstd
-import fcntl
-import os
 
 
 class MsgType(bytes, Enum):

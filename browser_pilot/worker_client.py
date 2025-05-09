@@ -231,6 +231,7 @@ class SyncWorkerClient(WorkerClient):
                 logger.debug(f"Received status from worker {idx}: {msg[0]}")
                 self.worker_status[idx] = msg[0]
 
+
 class AsyncWorkerClient(WorkerClient):
     def __init__(
         self,
@@ -264,7 +265,6 @@ class AsyncWorkerClient(WorkerClient):
         self._start_workers()
 
         self._recv_loop_running = False
-
 
     async def wait_for_workers_ready(self, timeout: float = 10):
         waiting_workers = set(range(self.num_workers))
@@ -361,7 +361,7 @@ class AsyncWorkerClient(WorkerClient):
             logger.info("Worker client closed successfully")
         except Exception as e:
             logger.error(f"Error during worker client shutdown: {e}")
-    
+
     def _start_workers(self):
         self.worker_processes = []
         for worker_id in range(self.num_workers):

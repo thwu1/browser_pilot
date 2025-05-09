@@ -7,6 +7,7 @@ reliability features for browser automation.
 """
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -15,7 +16,7 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
-import json
+
 import browsergym
 import browsergym.async_webarena
 import gymnasium as gym
@@ -148,6 +149,42 @@ class AsyncBrowserWorker:
                 logger.error(f"Error in task processor: {str(e)}")
                 await asyncio.sleep(0.1)
 
+    def shutdown(self):
+        logger.info(f"Shutting down worker {self.index}")
+        self.running = False
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.info("No running loop found, skipping shutdown")
+            return
+
+        if self.playwright:
+            loop.create_task(self.playwright.stop(), name="playwright_shutdown")
+        if self.browser:
+            loop.create_task(self.browser.close(), name="browser_shutdown")
+
+        # Cancel all tasks that are not shutdown-related
+        for task in asyncio.all_tasks(loop):
+            if task.get_name() not in ["playwright_shutdown", "browser_shutdown"]:
+                task.cancel()
+
+        self.browser = None
+        self.playwright = None
+
+        # Wait for the loop to stop with a timeout
+        try:
+            wait_start = time.time()
+            while (
+                loop.is_running() and time.time() - wait_start < 5
+            ):  # 5-second timeout
+                time.sleep(0.1)
+            if loop.is_running():
+                logger.warning("Loop did not stop within the timeout period")
+        except asyncio.CancelledError:
+            pass
+
+        loop.close()
+
     async def _execute_task(self, task: WorkerTask):
         """Execute a single task and put result in result queue"""
         logger.debug(f"Executing task {task.to_dict()}")
@@ -215,42 +252,6 @@ class AsyncBrowserWorker:
         finally:
             self.num_running_tasks -= 1
 
-    def shutdown(self):
-        logger.info(f"Shutting down worker {self.index}")
-        self.running = False
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            logger.info("No running loop found, skipping shutdown")
-            return
-
-        if self.playwright:
-            loop.create_task(self.playwright.stop(), name="playwright_shutdown")
-        if self.browser:
-            loop.create_task(self.browser.close(), name="browser_shutdown")
-
-        # Cancel all tasks that are not shutdown-related
-        for task in asyncio.all_tasks(loop):
-            if task.get_name() not in ["playwright_shutdown", "browser_shutdown"]:
-                task.cancel()
-
-        self.browser = None
-        self.playwright = None
-
-        # Wait for the loop to stop with a timeout
-        try:
-            wait_start = time.time()
-            while (
-                loop.is_running() and time.time() - wait_start < 5
-            ):  # 5-second timeout
-                time.sleep(0.1)
-            if loop.is_running():
-                logger.warning("Loop did not stop within the timeout period")
-        except asyncio.CancelledError:
-            pass
-
-        loop.close()
-
     async def _execute_method(
         self, env_id: str, method: str, params: Dict[str, Any] = None
     ) -> Dict[str, Any]:
@@ -307,19 +308,18 @@ class AsyncBrowserWorker:
         return WorkerStatus(
             index=self.index,
             running=self.running,
+            num_envs=len(self.env_map),
+            error_rate=self.error_rate,
             num_running_tasks=self.num_running_tasks,
             num_waiting_tasks=self.input_queue.qsize(),
             num_finished_tasks=self.num_finished_tasks,
-            num_envs=len(self.env_map),
-            num_pages=self.num_pages,
             avg_latency_ms=self.avg_latency_ms,
-            error_rate=self.error_rate,
             last_activity=self.last_activity_time,
             # The following fields will be updated by the heartbeat loop
+            last_heartbeat=0,
             throughput_per_sec=0,
             cpu_usage_percent=0,
             memory_usage_mb=0,
-            last_heartbeat=0,
         )
 
 
@@ -368,12 +368,6 @@ class AsyncBrowserWorkerProc:
         self.worker = AsyncBrowserWorker(index)
         self.serializer = Serializer(serializer="msgpack")
 
-    async def _send_ready(self):
-        assert self.worker.is_ready()
-        await self.output_socket.send_multipart(
-            [self.identity, MsgType.READY, self.serializer.dumps(["READY"])]
-        )
-
     @classmethod
     def run_background_loop(
         cls,
@@ -414,8 +408,9 @@ class AsyncBrowserWorkerProc:
                 worker.process_task_queue_loop(),
                 proc.process_incoming_socket_loop(),
                 proc.process_outgoing_socket_loop(),
-                # proc.send_heartbeat_loop(),
             ]
+            if monitor:
+                tasks.append(proc.send_heartbeat_loop())
             await asyncio.gather(*tasks)
 
         try:
@@ -425,18 +420,6 @@ class AsyncBrowserWorkerProc:
             logger.error(f"Fatal error in worker: {e}, {traceback.format_exc()}")
         finally:
             proc.shutdown()
-
-    async def _recv(self):
-        msg = await self.input_socket.recv_multipart()
-        assert len(msg) == 1
-        return self.serializer.loads(msg[0])
-
-    async def _send(self, outputs: List[Dict[str, Any]], msg_type: bytes):
-        assert isinstance(outputs, list)
-        logger.debug(f"Sending {len(outputs)} outputs to client")
-        await self.output_socket.send_multipart(
-            [self.identity, msg_type, self.serializer.dumps(outputs)]
-        )
 
     async def process_incoming_socket_loop(self):
         while self.worker.running:
@@ -556,6 +539,45 @@ class AsyncBrowserWorkerProc:
             logger.error(f"Error in heartbeat loop: {e}")
             raise
 
+    def shutdown(self):
+        logger.info(f"Shutting down worker {self.worker.index}")
+        try:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+            if loop and loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._send_shutdown_status_async(), loop
+                )
+                future.result()
+            elif loop:
+                asyncio.run(self._send_shutdown_status_async())
+        except Exception as e:
+            asyncio.run(self._send_shutdown_status_async())
+
+        self.worker.shutdown()
+        self.input_socket.close()
+        self.output_socket.close()
+        if self.monitor:
+            self.worker_status_socket.close()
+        self.ctx.term()
+
+    async def _recv(self):
+        msg = await self.input_socket.recv_multipart()
+        assert len(msg) == 1
+        return self.serializer.loads(msg[0])
+
+    async def _send(self, outputs: List[Dict[str, Any]], msg_type: bytes):
+        assert isinstance(outputs, list)
+        logger.debug(f"Sending {len(outputs)} outputs to client")
+        await self.output_socket.send_multipart(
+            [self.identity, msg_type, self.serializer.dumps(outputs)]
+        )
+
+    async def _send_ready(self):
+        assert self.worker.is_ready()
+        await self.output_socket.send_multipart(
+            [self.identity, MsgType.READY, self.serializer.dumps(["READY"])]
+        )
+
     async def _send_shutdown_status_async(self):
         status = self.worker.get_status()
         status.running = False
@@ -566,28 +588,6 @@ class AsyncBrowserWorkerProc:
             await self.worker_status_socket.send_multipart(
                 [self.identity, MsgType.STATUS, self.serializer.dumps(status.to_dict())]
             )
-
-    def shutdown(self):
-        logger.info(f"Shutting down worker {self.worker.index}")
-        try:
-            loop = asyncio.get_event_loop_policy().get_event_loop()
-            if loop:
-                if loop.is_running():
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._send_shutdown_status_async(), loop
-                    )
-                    future.result()
-                else:
-                    asyncio.run(self._send_shutdown_status_async())
-        except Exception as e:
-            asyncio.run(self._send_shutdown_status_async())
-
-        self.worker.shutdown()
-        self.input_socket.close()
-        self.output_socket.close()
-        if self.monitor:
-            self.worker_status_socket.close()
-        self.ctx.term()
 
 
 if __name__ == "__main__":
