@@ -23,3 +23,5 @@ profiling*
 
 *.csv
 *.png
+
+*.lock
