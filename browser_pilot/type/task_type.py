@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
+from browser_pilot.type.error_type import ErrorInfo
 
 
 class WorkerTask(BaseModel):
@@ -29,12 +30,13 @@ class WorkerTask(BaseModel):
 
 class WorkerOutput(BaseModel):
     task_id: str
-    result: Any
     success: bool
+    result: Optional[Any] = Field(default=None)
+    error_info: Optional[Dict[Any, Any]] = Field(default=None)
     profile: Optional[Dict[str, Any]] = Field(default=None)
 
     def to_dict(self):
-        return self.__dict__
+        return self.model_dump(mode="json", exclude_none=True)
 
 
 if __name__ == "__main__":

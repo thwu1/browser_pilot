@@ -27,6 +27,15 @@ from browsergym.async_core.action.highlevel import HighLevelActionSet
 from browsergym.async_core.action.python import PythonActionSet
 from playwright.async_api import Browser, async_playwright
 
+from browser_pilot.type.error_type import (
+    ErrorCategory,
+    ErrorCode,
+    ErrorInfo,
+    BrowserPilotError,
+    WorkerError,
+    ExternalError,
+    UnknownError,
+)
 from browser_pilot.type.task_type import WorkerOutput, WorkerTask
 from browser_pilot.type.worker_type import WorkerStatus
 from browser_pilot.utils import (
@@ -174,9 +183,7 @@ class AsyncBrowserWorker:
         # Wait for the loop to stop with a timeout
         try:
             wait_start = time.time()
-            while (
-                loop.is_running() and time.time() - wait_start < 5
-            ):  # 5-second timeout
+            while loop.is_running() and time.time() - wait_start < 5:
                 time.sleep(0.1)
             if loop.is_running():
                 logger.warning("Loop did not stop within the timeout period")
@@ -201,7 +208,7 @@ class AsyncBrowserWorker:
                         if key in [
                             "screenshot",
                             "extra_element_properties",
-                            "dom_object",
+                            # "dom_object",
                         ]:
                             logger.debug(f"Removing key: {key}")
                             result[0].pop(key)
@@ -231,13 +238,23 @@ class AsyncBrowserWorker:
             ) * 1000 * (1 - self.ema_factor)
 
         except Exception as e:
+            # Handle BrowserPilotError exceptions with their specific error info
+            if isinstance(e, BrowserPilotError):
+                error_info = e.to_error_info().to_dict()
+            else:
+                error_info = ErrorInfo(
+                    category=ErrorCategory.WORKER,
+                    code=ErrorCode.TASK_ERROR,
+                    message=str(e),
+                    traceback=traceback.format_exc(),
+                ).to_dict()
 
             logger.error(f"Error executing task {task}: {str(e)}", exc_info=True)
             self.output_queue.put_nowait(
                 WorkerOutput(
                     task_id=task.task_id,
-                    result=(str(e) + "\n" + traceback.format_exc(),),
                     success=False,
+                    error_info=error_info,
                     profile={
                         "engine_recv_timestamp": task.engine_recv_timestamp,
                         "engine_send_timestamp": task.engine_send_timestamp,
@@ -270,32 +287,65 @@ class AsyncBrowserWorker:
             self.shutdown()
             return "SHUTDOWN"
         if method != "__init__":
-            assert (
-                env_id in self.env_map
-            ), "Environment not initialized, should not step"
+            if env_id not in self.env_map:
+                raise WorkerError(
+                    code=ErrorCode.ENVIRONMENT_NOT_FOUND,
+                    message=f"Environment {env_id} not found, should not step",
+                )
             env = self.env_map[env_id]
             func = getattr(env, method)
             result = await func(**params)
             return result
         else:
-            assert (
-                env_id not in self.env_map
-            ), "Environment already exists, should not initialize again"
-            if "action_mapping" in params:
-                action_set_type = params["action_mapping"].pop("type")
-                if action_set_type == "HighLevelActionSet":
-                    action_set = HighLevelActionSet(**params["action_mapping"])
-                    params["action_mapping"] = action_set.to_python_code
-                elif action_set_type == "PythonActionSet":
-                    action_set = PythonActionSet(**params["action_mapping"])
-                    params["action_mapping"] = action_set.to_python_code
-                else:
-                    raise ValueError(f"Unknown action mapping type: {action_set_type}")
-            env = gym.make(**params)
-            env = env.unwrapped
-            env.set_browser(self.browser)
-            self.env_map[env_id] = env
-            return "Initialized"
+            # Check if environment already exists
+            if env_id in self.env_map:
+                raise WorkerError(
+                    code=ErrorCode.ENVIRONMENT_ALREADY_EXISTS,
+                    message=f"Environment {env_id} already exists, should not initialize again",
+                )
+
+            try:
+                # Process action mapping if provided
+                if "action_mapping" in params:
+                    action_set_type = params["action_mapping"].pop("type")
+                    if action_set_type == "HighLevelActionSet":
+                        action_set = HighLevelActionSet(**params["action_mapping"])
+                        params["action_mapping"] = action_set.to_python_code
+                    elif action_set_type == "PythonActionSet":
+                        action_set = PythonActionSet(**params["action_mapping"])
+                        params["action_mapping"] = action_set.to_python_code
+                    else:
+                        raise ValueError(
+                            f"Unknown action mapping type: {action_set_type}"
+                        )
+
+                # Create and initialize the environment
+                env = gym.make(**params)
+                env = env.unwrapped
+                env.set_browser(self.browser)
+                self.env_map[env_id] = env
+                return "Initialized"
+
+            except ValueError as e:
+                # Handle ValueError as UnknownError
+                logger.error(
+                    f"Invalid parameters for environment: {str(e)}", exc_info=True
+                )
+                raise UnknownError(
+                    message=f"Invalid parameters: {str(e)}",
+                    traceback=traceback.format_exc(),
+                )
+
+            except Exception as e:
+                # Handle other exceptions as ExternalError
+                logger.error(
+                    f"Failed to initialize environment: {str(e)}", exc_info=True
+                )
+                raise ExternalError(
+                    code=ErrorCode.ENVIRONMENT_INIT_ERROR,
+                    message=f"Failed to initialize environment: {str(e)}",
+                    traceback=traceback.format_exc(),
+                )
 
     def get_status(self) -> WorkerStatus:
         """Get the current status of the worker

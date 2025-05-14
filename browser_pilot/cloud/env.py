@@ -11,6 +11,10 @@ class CloudEnv(ABC):
         self._initialized = False
         self._kwargs = kwargs
 
+    @property
+    def env_id(self):
+        return self._kwargs["id"]
+
     def step(self, action: Any, timeout: float = 30.0) -> Any:
         msg = {
             "task_id": str(uuid.uuid4()),
@@ -57,31 +61,46 @@ class CloudEnv(ABC):
             "params": {},
         }
         future = self._client.send(msg)
-        future.result(timeout=timeout)
+        try:
+            future.result(timeout=timeout)
+        except Exception as e:
+            print("Failed to close env {}: {}".format(self.env_id, e))
         self._client.close()
+        print("Successfully closed env {}.".format(self.env_id))
 
 
 if __name__ == "__main__":
-    env = CloudEnv(
-        id="browsergym_async/openended",
-        task_kwargs={"start_url": "https://www.example.com"},
-        headless=True,
-        slow_mo=0,
-        timeout=10,
-    )
-    result = env.reset()
-    assert isinstance(
-        result, tuple
-    ), f"result is not a tuple: {type(result)}, {result.keys()}"
-    assert len(result) == 2
-    # print(result)
+    # env = CloudEnv(
+    #     id="browsergym_async/openended",
+    #     task_kwargs={"start_url": "https://www.example.com"},
+    #     headless=True,
+    #     slow_mo=0,
+    #     timeout=10,
+    # )
 
-    result = env.step("Click on the button")
-    assert isinstance(result, tuple)
-    assert len(result) == 5
-    # print(result)
-    result = env.step("Click on the button")
-    assert isinstance(result, tuple)
-    assert len(result) == 5
-    # print(result)
-    env.close()
+    concurrency = 32
+    tasks = 812
+    import asyncio
+
+    async def execute_task(id):
+        env = CloudEnv(
+            id="browsergym_async/openended",
+            task_kwargs={"start_url": "https://www.example.com"},
+            headless=True,
+            slow_mo=0,
+            timeout=10,
+        )
+        await asyncio.to_thread(env.reset)
+        await asyncio.to_thread(env.close)
+        print(f"Finished {id}")
+
+    sema = asyncio.Semaphore(concurrency)
+
+    async def run_task_with_sema(id, sema):
+        async with sema:
+            await execute_task(id)
+
+    async def main():
+        await asyncio.gather(*[run_task_with_sema(id, sema) for id in range(tasks)])
+
+    asyncio.run(main())

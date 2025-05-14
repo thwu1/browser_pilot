@@ -33,7 +33,7 @@ class CloudClient:
         self._send_queue = queue.Queue()
 
         self._msg_id_to_future = {}
-        self._loop = None
+        self._loop: asyncio.AbstractEventLoop = None
         self._is_running = False
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
@@ -60,14 +60,44 @@ class CloudClient:
                 if task is not asyncio.current_task():
                     task.cancel()
 
-        cleanup_future = asyncio.run_coroutine_threadsafe(cleanup(), self._loop)
+        if self._loop:
+            try:
+                cleanup_future = asyncio.run_coroutine_threadsafe(cleanup(), self._loop)
+                cleanup_future.result(timeout=timeout)
+            except Exception as e:
+                print(f"Error in cleanup: {e}")
+
         try:
-            cleanup_future.result(timeout=timeout)
+            if self._loop and self._loop.is_running():
+                self._loop.call_soon_threadsafe(self._loop.stop)
         except Exception as e:
-            print(f"Error in cleanup: {e}")
-        self._loop.call_soon_threadsafe(self._loop.stop)
+            print(f"Error stopping loop: {e}")
+
+        while self._loop and self._loop.is_running():
+            time.sleep(0.1)
+        print("Successfully stopped loop")
+
+        try:
+            if self._loop and not self._loop.is_closed():
+                self._loop.close()
+        except Exception as e:
+            print(f"Error closing loop: {e}")
+
+        assert self._loop is None or self._loop.is_closed()
+
+        self._loop = None
+
         self._executor.shutdown(wait=True)
-        self._thread.join(timeout)
+        if self._executor and not self._executor._shutdown:
+            self._executor.shutdown(wait=False)
+
+        if self._thread.is_alive():
+            self._thread.join(timeout)
+
+        if self._thread.is_alive():
+            print(
+                f"Thread did not terminate within {timeout}s timeout, cannot forcefully terminate thread in Python"
+            )
 
     def _run_async_loop(self):
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
