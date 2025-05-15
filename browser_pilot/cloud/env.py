@@ -60,8 +60,8 @@ class CloudEnv(ABC):
             "method": "close",
             "params": {},
         }
-        future = self._client.send(msg)
         try:
+            future = self._client.send(msg)
             future.result(timeout=timeout)
         except Exception as e:
             print("Failed to close env {}: {}".format(self.env_id, e))

@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import concurrent.futures
 import queue
 import struct
@@ -33,9 +34,13 @@ class CloudClient:
         self._send_queue = queue.Queue()
 
         self._msg_id_to_future = {}
+        self._waiting_queue = collections.deque()  # (timestamp, msg_id)
         self._loop: asyncio.AbstractEventLoop = None
         self._is_running = False
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._num_threads = 1
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=self._num_threads
+        )
 
         self._thread = threading.Thread(target=self._run_async_loop, daemon=True)
         self._thread.start()
@@ -43,12 +48,14 @@ class CloudClient:
     def send(self, msg: Any) -> None:
         msg_id = str(uuid.uuid4())
         self._msg_id_to_future[msg_id] = Future()
+        self._waiting_queue.append((time.time(), msg_id))
         self._send_queue.put(self._serializer.dumps([msg_id, msg]))
         return self._msg_id_to_future[msg_id]
 
     def close(self, timeout=5):
         self._is_running = False
-        self._send_queue.put("__SHUTDOWN__")
+        for _ in range(2 * self._num_threads):
+            self._send_queue.put("__SHUTDOWN__")
 
         async def cleanup():
             if self._ws and not self._ws.closed:
@@ -56,40 +63,60 @@ class CloudClient:
             if self._session and not self._session.closed:
                 await self._session.close()
 
-            for task in asyncio.all_tasks(self._loop):
-                if task is not asyncio.current_task():
+            tasks = [
+                t
+                for t in asyncio.all_tasks(self._loop)
+                if t is not asyncio.current_task()
+            ]
+            if tasks:
+                for task in tasks:
                     task.cancel()
 
-        if self._loop:
+                try:
+                    await asyncio.wait(tasks, timeout=timeout)
+                except Exception as e:
+                    print(f"Error waiting for tasks to complete: {e}")
+
+        if self._loop and self._loop.is_running():
             try:
                 cleanup_future = asyncio.run_coroutine_threadsafe(cleanup(), self._loop)
                 cleanup_future.result(timeout=timeout)
             except Exception as e:
                 print(f"Error in cleanup: {e}")
 
-        try:
-            if self._loop and self._loop.is_running():
+        if self._loop and self._loop.is_running():
+            try:
                 self._loop.call_soon_threadsafe(self._loop.stop)
-        except Exception as e:
-            print(f"Error stopping loop: {e}")
+            except Exception as e:
+                print(f"Error stopping loop: {e}")
 
+        start_time = time.time()
         while self._loop and self._loop.is_running():
-            time.sleep(0.1)
-        print("Successfully stopped loop")
+            if time.time() - start_time > timeout:
+                print(
+                    "Loop still running despite attempts to stop, trying to forcefully stop"
+                )
+                try:
+                    self._loop.stop()
+                except Exception as e:
+                    print(f"Error forcefully stopping loop: {e}")
+                break
 
-        try:
-            if self._loop and not self._loop.is_closed():
+        if self._loop and not self._loop.is_closed():
+            try:
                 self._loop.close()
-        except Exception as e:
-            print(f"Error closing loop: {e}")
+            except Exception as e:
+                print(f"Error closing loop: {e}")
 
-        assert self._loop is None or self._loop.is_closed()
+        if self._loop and not self._loop.is_closed():
+            print(
+                "Cannot close loop, last resort to gc, this might lead to OSError if happen too often"
+            )
 
         self._loop = None
 
-        self._executor.shutdown(wait=True)
         if self._executor and not self._executor._shutdown:
-            self._executor.shutdown(wait=False)
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
         if self._thread.is_alive():
             self._thread.join(timeout)
@@ -98,6 +125,11 @@ class CloudClient:
             print(
                 f"Thread did not terminate within {timeout}s timeout, cannot forcefully terminate thread in Python"
             )
+
+        self._send_queue = None
+        for future in self._msg_id_to_future.values():
+            future.set_exception(Exception("Cloud client is closed"))
+        self._msg_id_to_future = None
 
     def _run_async_loop(self):
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
@@ -140,18 +172,35 @@ class CloudClient:
 
     async def _recv_loop(self):
         while self._is_running:
-            msg = await self._ws.receive()
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                data = self._serializer.loads(msg.data)
-                future = self._msg_id_to_future.pop(data["task_id"])
-                future.set_result(data)
-            elif (
-                msg.type == aiohttp.WSMsgType.CLOSED
-                or msg.type == aiohttp.WSMsgType.CLOSE
-                or msg.type == aiohttp.WSMsgType.ERROR
-                or msg.type == 256
-            ):
-                self._is_running = False
-                break
-            else:
-                print("Received message of unknown type:", msg.type)
+            if self._waiting_queue:
+                start_time, msg_id = self._waiting_queue[0]
+                if time.time() - start_time > 60:
+                    self._waiting_queue.popleft()
+                    future = self._msg_id_to_future.pop(msg_id, None)
+                    if future:
+                        future.set_exception(Exception("Timeout waiting for response"))
+                        continue
+            try:
+                msg = await self._ws.receive(timeout=5)
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = self._serializer.loads(msg.data)
+                    future = self._msg_id_to_future.pop(data["task_id"], None)
+                    if future is None:
+                        continue
+                    future.set_result(data)
+                elif (
+                    msg.type == aiohttp.WSMsgType.CLOSED
+                    or msg.type == aiohttp.WSMsgType.CLOSE
+                    or msg.type == aiohttp.WSMsgType.ERROR
+                    or msg.type == 256
+                ):
+                    self._is_running = False
+                    break
+                else:
+                    print("Received message of unknown type:", msg.type)
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                import traceback
+
+                print("Unexpected error in recv loop:", e, traceback.format_exc())
