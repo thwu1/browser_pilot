@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import Future
-from typing import Any
+from typing import Any, Optional
 
 import aiohttp
 import uvloop
@@ -18,10 +18,11 @@ import logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
+    handlers=[logging.StreamHandler(), logging.FileHandler("client.log")],
     force=True,
 )
 logger = logging.getLogger(__name__)
+
 
 class MsgType:
     INITIALIZE = "__init__"
@@ -31,14 +32,19 @@ class MsgType:
 
 
 class CloudClient:
-    def __init__(self, url: str = "ws://localhost:9999/send_and_wait"):
+    def __init__(
+        self,
+        url: str = "ws://localhost:9999/send_and_wait",
+        max_concurrency: Optional[int] = None,
+    ):
         self._serializer = Serializer(serializer="orjson")
 
         self._session = None
         self._url = url
+        self._max_concurrency = max_concurrency
         self._wss = {}
         self._max_msg_size = 1024 * 1024 * 100
-        self._send_queue = queue.Queue() # (msg, wsid)
+        self._send_queue = queue.Queue()  # (msg, wsid)
 
         self._msg_id_to_future = {}
         self._waiting_queue = collections.deque()  # (timestamp, msg_id)
@@ -64,18 +70,25 @@ class CloudClient:
         self._send_queue.put((self._serializer.dumps([msg_id, msg]), wsid))
         return self._msg_id_to_future[msg_id]
 
-
     def register_env(self, env_uuid: str, timeout=5):
-        connect_fut = asyncio.run_coroutine_threadsafe(self._connect(env_uuid), self._loop)
-        if connect_fut.result(timeout=timeout):
-            start_event = threading.Event()
-            self._recv_running[env_uuid] = True
-            asyncio.run_coroutine_threadsafe(self._recv_loop(env_uuid, start_event), self._loop)
-            start_event.wait()
-        
-        logger.debug(f"Registered env {env_uuid}")
+        connect_fut = asyncio.run_coroutine_threadsafe(
+            self._connect(env_uuid), self._loop
+        )
+        try:
+            connect_fut.result(timeout=timeout)
+        except Exception as e:
+            connect_fut.cancel()
+            self.unregister_env(env_uuid, timeout=timeout)
+            raise e
 
-        return True
+        start_event = threading.Event()
+        self._recv_running[env_uuid] = True
+        asyncio.run_coroutine_threadsafe(
+            self._recv_loop(env_uuid, start_event), self._loop
+        )
+        start_event.wait()
+
+        logger.debug(f"Registered env {env_uuid}")
 
     def unregister_env(self, env_uuid: str, timeout=5):
         self._recv_running[env_uuid] = False
@@ -111,7 +124,7 @@ class CloudClient:
             if not future.done():
                 future.set_exception(RuntimeError("Cloud client is closed"))
         self._msg_id_to_future = None
-    
+
     async def _close_wss_and_session(self):
         tasks = []
         for ws in self._wss.values():
@@ -121,12 +134,12 @@ class CloudClient:
             await asyncio.gather(*tasks)
 
         self._wss = None
-        
+
         if self._session and not self._session.closed:
             await self._session.close()
 
         self._session = None
-        
+
     def _stop_and_close_loop(self, timeout=5):
         async def cleanup():
             await self._close_wss_and_session()
@@ -183,11 +196,22 @@ class CloudClient:
 
         self._loop = None
 
-
     def _run_async_loop(self):
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
+
+        if self._max_concurrency:
+            connector = aiohttp.TCPConnector(
+                limit=self._max_concurrency,
+                limit_per_host=self._max_concurrency,
+                loop=self._loop,
+                enable_cleanup_closed=True,
+            )
+        else:
+            # default connector, has limit of 100
+            connector = None
+        self._session = aiohttp.ClientSession(loop=self._loop, connector=connector)
 
         self._send_running = True
         self._loop.create_task(self._send_loop())
@@ -205,7 +229,6 @@ class CloudClient:
         return True
 
     async def _send_loop(self):
-        self._session = aiohttp.ClientSession()
         self._loop_started.set()
         while self._send_running:
             if self._send_queue.empty():
@@ -220,8 +243,10 @@ class CloudClient:
             if wsid in self._wss and not self._wss[wsid].closed:
                 await self._wss[wsid].send_str(msg)
             else:
-                logger.warning(f"WebSocket {wsid} might have been closed, shouldn't send message")
-    
+                logger.warning(
+                    f"WebSocket {wsid} might have been closed, shouldn't send message"
+                )
+
     async def _future_timeout_loop(self):
         while self._send_running:
             await asyncio.sleep(1)
@@ -233,7 +258,6 @@ class CloudClient:
                     future = self._msg_id_to_future.pop(msg_id, None)
                     if future and not future.done():
                         future.set_exception(Exception("Timeout waiting for response"))
-                    
 
     async def _recv_loop(self, wsid, start_event: threading.Event):
         ws = self._wss[wsid]
@@ -260,6 +284,8 @@ class CloudClient:
                 else:
                     logger.warning(f"Received message of unknown type: {msg.type}")
             except Exception as e:
-                logger.error(f"Receive Loop for {wsid} failed due to {e}, likely it's been closed")
+                logger.error(
+                    f"Receive Loop for {wsid} failed due to {e}, likely it's been closed"
+                )
                 break
         logger.debug(f"Received loop for {wsid} stopped")
