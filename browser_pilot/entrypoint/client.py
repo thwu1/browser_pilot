@@ -63,7 +63,7 @@ class CloudClient:
         self._thread.start()
         self._loop_started.wait()
 
-    def send(self, msg: Any, wsid: str) -> None:
+    def send(self, msg: Any, wsid: str) -> Future:
         msg_id = str(uuid.uuid4())
         self._msg_id_to_future[msg_id] = Future()
         self._waiting_queue.append((time.time(), msg_id))
@@ -226,7 +226,6 @@ class CloudClient:
         self._wss[wsid] = await self._session.ws_connect(
             self._url, max_msg_size=self._max_msg_size
         )
-        return True
 
     async def _send_loop(self):
         self._loop_started.set()
@@ -249,7 +248,7 @@ class CloudClient:
 
     async def _future_timeout_loop(self):
         while self._send_running:
-            await asyncio.sleep(1)
+            await asyncio.sleep(10)
             logger.debug(f"wss: {self._wss}, {time.time()}")
             if self._waiting_queue:
                 start_time, msg_id = self._waiting_queue[0]
