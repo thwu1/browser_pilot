@@ -1,33 +1,21 @@
 import uuid
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any
 
 from browser_pilot.entrypoint.client import CloudClient
-import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-    force=True,
-)
-logger = logging.getLogger(__name__)
 
 class CloudEnv(ABC):
     def __init__(
         self,
         url: str = "ws://localhost:9999/send_and_wait",
         client: CloudClient = None,
-        env_uuid: str = None,
         **kwargs,
     ):
         self._share_client = False if client is None else True
         self._client = client if self._share_client else CloudClient(url)
         self._initialized = False
         self._kwargs = kwargs
-
-        self._env_uuid = str(uuid.uuid4()) if env_uuid is None else env_uuid
-        self._client.register_env(self._env_uuid)
 
     @property
     def env_id(self):
@@ -39,7 +27,7 @@ class CloudEnv(ABC):
             "method": "step",
             "params": {"action": action},
         }
-        future = self._client.send(msg, self._env_uuid)
+        future = self._client.send(msg)
         result = future.result(timeout=timeout)
         return tuple(result["result"])
 
@@ -50,7 +38,7 @@ class CloudEnv(ABC):
                 "method": "reset",
                 "params": {},
             }
-            future = self._client.send(msg, self._env_uuid)
+            future = self._client.send(msg)
             result = future.result(timeout=timeout)
             return tuple(result["result"])
         else:
@@ -59,7 +47,7 @@ class CloudEnv(ABC):
                 "method": "__init__",
                 "params": self._kwargs,
             }
-            future = self._client.send(msg, self._env_uuid)
+            future = self._client.send(msg)
             result = future.result(timeout=timeout)
             self._initialized = True
 
@@ -68,7 +56,7 @@ class CloudEnv(ABC):
                 "method": "reset",
                 "params": {},
             }
-            future = self._client.send(msg, self._env_uuid)
+            future = self._client.send(msg)
             result = future.result(timeout=timeout)
             return tuple(result["result"])
 
@@ -79,21 +67,17 @@ class CloudEnv(ABC):
             "params": {},
         }
         try:
-            future = self._client.send(msg, self._env_uuid)
+            future = self._client.send(msg)
             future.result(timeout=timeout)
         except Exception as e:
-            logger.error("Failed to close env {}: {}".format(self.env_id, e))
+            print("Failed to close env {}: {}".format(self.env_id, e))
 
         if not self._share_client:
             self._client.close()
-            logger.debug("Successfully closed env {}".format(self.env_id))
-        else:
-            self._client.unregister_env(self._env_uuid)
-            logger.debug("Successfully unregistered env {}".format(self.env_id))
+            print("Successfully closed env {}.".format(self.env_id))
 
 
 if __name__ == "__main__":
-    import time
     # env = CloudEnv(
     #     id="browsergym_async/openended",
     #     task_kwargs={"start_url": "https://www.example.com"},
@@ -102,30 +86,19 @@ if __name__ == "__main__":
     #     timeout=10,
     # )
 
-    concurrency = 96
-    tasks = 6 * concurrency
-
-    share_client = True
+    concurrency = 32
+    tasks = 812
     import asyncio
-
-    if share_client:
-        client = CloudClient()
-    else:
-        client = None
 
     async def execute_task(id):
         env = CloudEnv(
             id="browsergym_async/openended",
-            client=client,
-            env_uuid=str(id),
             task_kwargs={"start_url": "https://www.example.com"},
             headless=True,
             slow_mo=0,
             timeout=10,
         )
         await asyncio.to_thread(env.reset)
-        # await env.reset()
-        # await env.close()
         await asyncio.to_thread(env.close)
         print(f"Finished {id}")
 
@@ -138,9 +111,4 @@ if __name__ == "__main__":
     async def main():
         await asyncio.gather(*[run_task_with_sema(id, sema) for id in range(tasks)])
 
-    time_start = time.time()
     asyncio.run(main())
-    time_end = time.time()
-    print(f"Time taken: {time_end - time_start} seconds")
-    if share_client:
-        client.close()
