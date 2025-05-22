@@ -5,12 +5,7 @@ from typing import Any
 from browser_pilot.entrypoint.async_client import AsyncCloudClient
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("env.log")],
-    force=True,
-)
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,7 +129,6 @@ if __name__ == "__main__":
         await env.reset()
         await env.close()
         print(f"Finished {id}")
-
 
     sema = asyncio.Semaphore(concurrency)
 

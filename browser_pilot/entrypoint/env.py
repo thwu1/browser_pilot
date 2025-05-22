@@ -5,12 +5,6 @@ from typing import Any
 from browser_pilot.entrypoint.client import CloudClient
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("env.log")],
-    force=True,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -31,6 +25,8 @@ class CloudEnv(ABC):
         # self._client.register_env(self._env_uuid)
         self._env_registered = False
 
+        logger.debug(f"Initialized env name {self.env_id} with uuid {self._env_uuid}")
+
     @property
     def env_id(self):
         return self._kwargs["id"]
@@ -42,7 +38,9 @@ class CloudEnv(ABC):
             "params": {"action": action},
         }
         future = self._client.send(msg, self._env_uuid)
+        logger.debug(f"[Step] Send {msg} in env {self._env_uuid}")
         result = future.result(timeout=timeout)
+        logger.debug(f"[Step] Recv result in env {self._env_uuid}")
         return tuple(result["result"])
 
     def reset(self, timeout: float = 30.0) -> None:
@@ -110,8 +108,8 @@ if __name__ == "__main__":
     #     timeout=10,
     # )
 
-    concurrency = 64
-    tasks = 1500
+    concurrency = 128
+    tasks = 1000
 
     share_client = True
     import asyncio

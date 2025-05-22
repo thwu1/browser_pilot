@@ -15,12 +15,6 @@ from browser_pilot.utils import Serializer
 
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("client.log")],
-    force=True,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -249,14 +243,22 @@ class CloudClient:
     async def _future_timeout_loop(self):
         while self._send_running:
             await asyncio.sleep(10)
-            logger.debug(f"wss: {self._wss}, {time.time()}")
-            if self._waiting_queue:
+            # logger.debug(f"wss: {self._wss}, {time.time()}")
+            logger.debug(
+                f"current_time = {time.time()}, waiting queue: {self._waiting_queue}"
+            )
+            while self._waiting_queue:
                 start_time, msg_id = self._waiting_queue[0]
-                if time.time() - start_time > self._future_timeout:
-                    self._waiting_queue.popleft()
-                    future = self._msg_id_to_future.pop(msg_id, None)
-                    if future and not future.done():
-                        future.set_exception(Exception("Timeout waiting for response"))
+                if time.time() - start_time <= self._future_timeout:
+                    break
+
+                self._waiting_queue.popleft()
+                future = self._msg_id_to_future.pop(msg_id, None)
+                if future and not future.done():
+                    logger.debug(
+                        f"Future timeout waiting for {time.time() - start_time} seconds, response {msg_id}"
+                    )
+                    future.set_exception(Exception("Timeout waiting for response"))
 
     async def _recv_loop(self, wsid, start_event: threading.Event):
         ws = self._wss[wsid]

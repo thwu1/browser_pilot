@@ -16,12 +16,6 @@ from browser_pilot.utils import Serializer
 import logging
 import asyncio
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("client.log")],
-    force=True,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -73,7 +67,7 @@ class AsyncCloudClient:
         except Exception as e:
             await self.unregister_env(env_uuid, timeout=timeout)
             raise e
-    
+
         logger.debug(f"Connected to {env_uuid} via ws {self._wss[env_uuid]}")
 
         start_event = asyncio.Event()
@@ -105,7 +99,6 @@ class AsyncCloudClient:
                 future.set_exception(RuntimeError("Cloud client is closed"))
         self._msg_id_to_future = None
 
-
     def maybe_start_background_task(self):
         if self._started_background_task:
             return
@@ -128,7 +121,9 @@ class AsyncCloudClient:
                 # default connector, has limit of 100
                 connector = None
             if self._session is None:
-                self._session = aiohttp.ClientSession(loop=self._loop, connector=connector)
+                self._session = aiohttp.ClientSession(
+                    loop=self._loop, connector=connector
+                )
 
                 self._send_running = True
                 self._loop.create_task(self._send_loop())
@@ -148,7 +143,7 @@ class AsyncCloudClient:
             await self._session.close()
 
         self._session = None
-        
+
     async def _connect(self, wsid: str):
         self._wss[wsid] = await self._session.ws_connect(
             self._url, max_msg_size=self._max_msg_size
@@ -171,13 +166,18 @@ class AsyncCloudClient:
         while self._send_running:
             await asyncio.sleep(10)
             logger.debug(f"wss: {self._wss}, {time.time()}")
-            if self._waiting_queue:
+            while self._waiting_queue:
                 start_time, msg_id = self._waiting_queue[0]
-                if time.time() - start_time > self._future_timeout:
-                    self._waiting_queue.popleft()
-                    future = self._msg_id_to_future.pop(msg_id, None)
-                    if future and not future.done():
-                        future.set_exception(Exception("Timeout waiting for response"))
+                if time.time() - start_time <= self._future_timeout:
+                    break
+
+                self._waiting_queue.popleft()
+                future = self._msg_id_to_future.pop(msg_id, None)
+                if future and not future.done():
+                    logger.debug(
+                        f"Future timeout waiting for {time.time() - start_time} seconds, response {msg_id}"
+                    )
+                    future.set_exception(Exception("Timeout waiting for response"))
 
     async def _recv_loop(self, wsid, start_event: asyncio.Event):
         ws = self._wss[wsid]
