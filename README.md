@@ -4,6 +4,16 @@ Basically, this is a unified endpoint for all the browsergym workers. Start the 
 
 ## Install
 
+First we need to setup the dependencies: BrowserGym. We use a forked version of BrowserGym that support asyncio.
+
+```shell
+git clone https://github.com/thwu1/BrowserGym.git
+cd BrowserGym
+make async
+```
+
+Then we can install dependencies for the proxy server.
+
 ```shell
 pip install -r requirements.txt
 pip install -e .
@@ -11,7 +21,7 @@ pip install -e .
 
 ## Start the server
 
-In a new terminal, start the app using uvicorn.
+In a new terminal, start the proxy app with uvicorn.
 
 ```shell
 cd browser_pilot
