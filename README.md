@@ -15,8 +15,8 @@ make async
 Then we can install dependencies for the proxy server.
 
 ```shell
-pip install -r requirements.txt
-pip install -e .
+uv pip install -r requirements.txt
+uv pip install -e .
 ```
 
 ## Start the server
