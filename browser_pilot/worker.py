@@ -28,13 +28,13 @@ from browsergym.async_core.action.python import PythonActionSet
 from playwright.async_api import Browser, async_playwright
 
 from browser_pilot.type.error_type import (
+    BrowserPilotError,
     ErrorCategory,
     ErrorCode,
     ErrorInfo,
-    BrowserPilotError,
-    WorkerError,
     ExternalError,
     UnknownError,
+    WorkerError,
 )
 from browser_pilot.type.task_type import WorkerOutput, WorkerTask
 from browser_pilot.type.worker_type import WorkerStatus
@@ -45,12 +45,6 @@ from browser_pilot.utils import (
     numpy_safe_serializer,
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("worker.log")],
-)
 logger = logging.getLogger(__name__)
 
 # Constants

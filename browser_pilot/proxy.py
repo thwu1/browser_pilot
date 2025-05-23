@@ -178,7 +178,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "proxy:app",
         host="0.0.0.0",
-        port=9999,
+        port=5294,
         log_level="info",
         workers=1,
         lifespan="on",

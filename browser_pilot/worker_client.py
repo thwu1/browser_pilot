@@ -23,13 +23,7 @@ import zmq.asyncio
 from browser_pilot.utils import MsgType, Serializer, make_zmq_socket
 from browser_pilot.worker import AsyncBrowserWorkerProc
 
-logging.basicConfig(
-    level=logging.ERROR,
-    format="%(asctime)s - %(processName)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
-)
 logger = logging.getLogger(__name__)
-
 
 class WorkerClient(ABC):
     @staticmethod
