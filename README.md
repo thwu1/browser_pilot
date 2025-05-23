@@ -21,9 +21,13 @@ uv pip install -e .
 
 ## Start the server
 
-In a new terminal, start the proxy app with uvicorn.
+First, configure the environment variables needed for the BrowserGym workers. Replace your openai key in `env_var.sh`.
+
+Then start the proxy app with uvicorn.
 
 ```shell
+cd browser_pilot
+source env_var.sh
 cd browser_pilot
 uvicorn proxy:app --host 0.0.0.0 --port <port> --workers 8 --loop uvloop --ws-max-size 10000000
 ```
